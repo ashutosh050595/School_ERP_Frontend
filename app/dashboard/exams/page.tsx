@@ -136,7 +136,7 @@ function ExamTermDetail({ term, onClose }: { term: ExamTerm; onClose: () => void
           : (
             <div className="space-y-2">
               {subjects.map((s: any, i: number) => (
-                <div key={s.id || i} className="flex items-center justify-between p-3 bg-white/3 rounded-lg">
+                <div key={s.id || i} className="flex items-center justify-between p-3 bg-white/5 rounded-lg">
                   <div><p className="text-white/80 text-sm">{s.name}</p><p className="text-white/30 text-xs">{s.code}</p></div>
                   <div className="text-right"><p className="text-white/60 text-sm">{s.maxMarks} marks</p><p className="text-white/30 text-xs">Pass: {s.passingMarks}</p></div>
                 </div>

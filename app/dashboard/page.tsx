@@ -155,7 +155,7 @@ export default function DashboardPage() {
           <div className="grid grid-cols-2 gap-2">
             {quickLinks.map((link, i) => (
               <Link key={i} href={link.href}
-                className="flex flex-col items-center gap-2 p-3 rounded-lg bg-white/3 hover:bg-gold-500/10 hover:border-gold-500/20 border border-transparent transition-all duration-150 text-center group">
+                className="flex flex-col items-center gap-2 p-3 rounded-lg bg-white/5 hover:bg-gold-500/10 hover:border-gold-500/20 border border-transparent transition-all duration-150 text-center group">
                 <link.icon className="w-5 h-5 text-white/40 group-hover:text-gold-500 transition-colors" />
                 <span className="text-white/50 group-hover:text-white/80 text-xs transition-colors">{link.label}</span>
               </Link>
@@ -180,7 +180,7 @@ export default function DashboardPage() {
           ) : (
             <div className="space-y-1">
               {(stats?.students?.data?.students || []).slice(0, 5).map((s: any, i: number) => (
-                <div key={i} className="flex items-center gap-3 py-2.5 px-3 rounded-lg hover:bg-white/3 transition-colors">
+                <div key={i} className="flex items-center gap-3 py-2.5 px-3 rounded-lg hover:bg-white/5 transition-colors">
                   <div className="w-8 h-8 rounded-full bg-gold-500/10 border border-gold-500/20 flex items-center justify-center text-gold-500 text-xs font-semibold">
                     {s.name?.charAt(0)}
                   </div>

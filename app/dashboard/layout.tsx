@@ -132,7 +132,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         {/* User profile */}
         <div className="p-3 border-t border-white/5">
-          <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-white/3">
+          <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-white/5">
             <div className="w-8 h-8 rounded-full bg-gold-500/20 border border-gold-500/30 flex items-center justify-center text-gold-500 font-semibold text-xs">
               {getInitials(user?.name || 'SA')}
             </div>

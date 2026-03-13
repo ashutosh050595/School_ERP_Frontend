@@ -58,7 +58,7 @@ export default function StudentsPage() {
         <button onClick={()=>setShowAdd(true)} className="btn-primary"><Plus className="w-4 h-4"/>Admit Student</button>
       </div>
 
-      <Tabs tabs={[{key:'students',label:'All Students'},{key:'classes',label:'Classes & Sections'},{key:'photos',label:'Student Photos'}]} active={tab} onChange={setTab} />
+      <Tabs tabs={[{key:'students',label:'All Students'},{key:'classes',label:'Classes & Sections'},{key:'photos',label:'Student Photos'},{key:'bulk',label:'⬆ Bulk Upload'}]} active={tab} onChange={setTab} />
 
       {tab==='students' && <>
         <div className="card p-4 flex flex-wrap gap-3">
@@ -102,6 +102,7 @@ export default function StudentsPage() {
 
       {tab==='classes' && <ClassesManager classes={classes} reload={()=>studentsApi.getClasses().then(r=>setClasses(r.data.data||[]))}/>}
       {tab==='photos'  && <PhotosManager classes={classes}/>}
+      {tab==='bulk'    && <BulkUploadRedirect/>}
 
       {showAdd && <StudentForm onClose={()=>setShowAdd(false)} onSuccess={()=>{setShowAdd(false);load();}} classes={classes}/>}
       {editItem && <StudentForm student={editItem} onClose={()=>setEditItem(null)} onSuccess={()=>{setEditItem(null);load();}} classes={classes}/>}
@@ -402,7 +403,6 @@ const Row2 = ({children}:any) => <div className="grid grid-cols-1 sm:grid-cols-2
 const Row3 = ({children}:any) => <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">{children}</div>;
 const F = ({label,children}:any) => <div><label className="form-label">{label}</label>{children}</div>;
 
-
 function BulkUploadRedirect() {
   return (
     <div className="flex flex-col items-center justify-center py-16 text-center space-y-4">
@@ -419,4 +419,3 @@ function BulkUploadRedirect() {
     </div>
   );
 }
-

@@ -1,9 +1,5 @@
 {
   "version": 2,
   "framework": "nextjs",
-  "buildCommand": "npm run build",
-  "outputDirectory": ".next",
-  "env": {
-    "NEXT_PUBLIC_API_URL": "https://school-erp-bay.vercel.app"
-  }
+  "env": { "NEXT_PUBLIC_API_URL": "https://school-erp-bay.vercel.app" }
 }

@@ -1,189 +1,200 @@
 import axios from 'axios';
 import Cookies from 'js-cookie';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://school-erp-bay.vercel.app';
+const BASE = (process.env.NEXT_PUBLIC_API_URL || 'https://school-erp-bay.vercel.app') + '/api';
 
-export const api = axios.create({
-  baseURL: `${API_URL}/api`,
-  headers: { 'Content-Type': 'application/json' },
+export const api = axios.create({ baseURL: BASE, headers: { 'Content-Type': 'application/json' } });
+
+api.interceptors.request.use(cfg => {
+  const t = Cookies.get('token');
+  if (t) cfg.headers.Authorization = `Bearer ${t}`;
+  return cfg;
 });
-
-// Attach token to every request
-api.interceptors.request.use((config) => {
-  const token = Cookies.get('token');
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  return config;
-});
-
-// Handle 401 - redirect to login
-api.interceptors.response.use(
-  (res) => res,
-  (err) => {
-    if (err.response?.status === 401 && typeof window !== 'undefined') {
-      Cookies.remove('token');
-      Cookies.remove('user');
-      window.location.href = '/login';
-    }
-    return Promise.reject(err);
+api.interceptors.response.use(r => r, err => {
+  if (err.response?.status === 401 && typeof window !== 'undefined') {
+    Cookies.remove('token'); Cookies.remove('user');
+    window.location.href = '/login';
   }
-);
+  return Promise.reject(err);
+});
 
-// ─── Auth ─────────────────────────────────────
+// ─── Auth ──────────────────────────────────────────────
 export const authApi = {
-  login: (email: string, password: string) =>
-    api.post('/auth/login', { email, password }),
+  login:  (e:string,p:string) => api.post('/auth/login',{email:e,password:p}),
+  me:     () => api.get('/auth/me'),
   logout: () => api.post('/auth/logout'),
-  me: () => api.get('/auth/me'),
+  changePassword: (d:any) => api.put('/auth/change-password',d),
 };
 
-// ─── Dashboard Stats ──────────────────────────
-export const dashboardApi = {
-  getStats: async () => {
-    const [students, staff, fees, attendance] = await Promise.allSettled([
-      api.get('/admissions/students?limit=1'),
-      api.get('/users?limit=1'),
-      api.get('/fees/summary'),
-      api.get('/attendance/summary'),
-    ]);
-    return { students, staff, fees, attendance };
-  },
-};
-
-// ─── Students ─────────────────────────────────
+// ─── Students ──────────────────────────────────────────
 export const studentsApi = {
-  getAll: (params?: any) => api.get('/admissions/students', { params }),
-  getOne: (admissionNumber: string) => api.get(`/students/photos/lookup/${admissionNumber}`),
-  create: (data: any) => api.post('/admissions', data),
-  update: (id: string, data: any) => api.put(`/admissions/students/${id}`, data),
-  delete: (id: string) => api.delete(`/admissions/students/${id}`),
-  getClasses: () => api.get('/admissions/classes'),
-  createClass: (data: any) => api.post('/admissions/classes', data),
-  getSections: (classId: string) => api.get(`/admissions/classes/${classId}/sections`),
-  createSection: (classId: string, data: any) => api.post(`/admissions/classes/${classId}/sections`, data),
-  uploadPhoto: (formData: FormData) => api.post('/students/photos/upload', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  }),
+  getAll:        (p?:any) => api.get('/admissions/students',{params:p}),
+  getOne:        (id:string) => api.get(`/admissions/students/${id}`),
+  lookup:        (admNo:string) => api.get(`/students/photos/lookup/${admNo}`),
+  create:        (d:any) => api.post('/admissions',d),
+  update:        (id:string,d:any) => api.put(`/admissions/students/${id}`,d),
+  delete:        (id:string) => api.delete(`/admissions/students/${id}`),
+  getClasses:    () => api.get('/admissions/classes'),
+  createClass:   (d:any) => api.post('/admissions/classes',d),
+  deleteClass:   (id:string) => api.delete(`/admissions/classes/${id}`),
+  getSections:   (cid:string) => api.get(`/admissions/classes/${cid}/sections`),
+  createSection: (cid:string,d:any) => api.post(`/admissions/classes/${cid}/sections`,d),
+  uploadPhoto:   (fd:FormData) => api.post('/students/photos/upload',fd,{headers:{'Content-Type':'multipart/form-data'}}),
+  bulkPhoto:     (fd:FormData) => api.post('/students/photos/bulk-upload',fd,{headers:{'Content-Type':'multipart/form-data'}}),
 };
 
-// ─── Attendance ────────────────────────────────
+// ─── Attendance ────────────────────────────────────────
 export const attendanceApi = {
-  getByDate: (params: any) => api.get('/attendance', { params }),
-  mark: (data: any) => api.post('/attendance', data),
-  getReport: (params: any) => api.get('/attendance/report', { params }),
-  getSummary: (params: any) => api.get('/attendance/summary', { params }),
+  getByDate:  (p:any) => api.get('/attendance',{params:p}),
+  mark:       (d:any) => api.post('/attendance',d),
+  getReport:  (p:any) => api.get('/attendance/report',{params:p}),
+  getSummary: (p?:any) => api.get('/attendance/summary',{params:p}),
+  getStudent: (admNo:string,p?:any) => api.get(`/attendance/student/${admNo}`,{params:p}),
 };
 
-// ─── Fees ──────────────────────────────────────
+// ─── Fees ──────────────────────────────────────────────
 export const feesApi = {
-  getStructures: () => api.get('/fees/structures'),
-  createStructure: (data: any) => api.post('/fees/structures', data),
-  getPayments: (params?: any) => api.get('/fees/payments', { params }),
-  createPayment: (data: any) => api.post('/fees/payments', data),
-  getDefaulters: (params?: any) => api.get('/fees/defaulters', { params }),
-  getSummary: () => api.get('/fees/summary'),
-  getReceipt: (paymentId: string) => api.get(`/fees/payments/${paymentId}/receipt`, { responseType: 'blob' }),
+  getStructures:  (p?:any) => api.get('/fees/structures',{params:p}),
+  createStructure:(d:any) => api.post('/fees/structures',d),
+  updateStructure:(id:string,d:any) => api.put(`/fees/structures/${id}`,d),
+  deleteStructure:(id:string) => api.delete(`/fees/structures/${id}`),
+  getPayments:    (p?:any) => api.get('/fees/payments',{params:p}),
+  createPayment:  (d:any) => api.post('/fees/payments',d),
+  getDefaulters:  (p?:any) => api.get('/fees/defaulters',{params:p}),
+  getSummary:     (p?:any) => api.get('/fees/summary',{params:p}),
+  getReceipt:     (id:string) => api.get(`/fees/payments/${id}/receipt`,{responseType:'blob'}),
+  getStudentFees: (admNo:string) => api.get(`/fees/student/${admNo}`),
 };
 
-// ─── Exams ─────────────────────────────────────
+// ─── Exams ─────────────────────────────────────────────
 export const examsApi = {
-  getTerms: (params?: any) => api.get('/exams/terms', { params }),
-  createTerm: (data: any) => api.post('/exams/terms', data),
-  getSubjects: (termId: string) => api.get(`/exams/terms/${termId}/subjects`),
-  createSubject: (termId: string, data: any) => api.post(`/exams/terms/${termId}/subjects`, data),
-  enterMarks: (data: any) => api.post('/exams/marks', data),
-  getResults: (params: any) => api.get('/exams/results', { params }),
+  getTerms:      (p?:any) => api.get('/exams/terms',{params:p}),
+  createTerm:    (d:any) => api.post('/exams/terms',d),
+  updateTerm:    (id:string,d:any) => api.put(`/exams/terms/${id}`,d),
+  deleteTerm:    (id:string) => api.delete(`/exams/terms/${id}`),
+  getSubjects:   (termId:string) => api.get(`/exams/terms/${termId}/subjects`),
+  createSubject: (termId:string,d:any) => api.post(`/exams/terms/${termId}/subjects`,d),
+  deleteSubject: (id:string) => api.delete(`/exams/subjects/${id}`),
+  enterMarks:    (d:any) => api.post('/exams/marks',d),
+  getResults:    (p:any) => api.get('/exams/results',{params:p}),
 };
 
-// ─── Report Cards ──────────────────────────────
+// ─── Report Cards ──────────────────────────────────────
 export const reportCardsApi = {
-  generate: (studentId: string, termId: string) =>
-    api.get(`/report-cards/${studentId}/${termId}`, { responseType: 'blob' }),
-  bulkGenerate: (data: any) => api.post('/report-cards/bulk', data, { responseType: 'blob' }),
+  generate:     (studentId:string,termId:string) => api.get(`/report-cards/${studentId}/${termId}`,{responseType:'blob'}),
+  bulkGenerate: (d:any) => api.post('/report-cards/bulk',d,{responseType:'blob'}),
 };
 
-// ─── Library ───────────────────────────────────
-export const libraryApi = {
-  getBooks: (params?: any) => api.get('/library/books', { params }),
-  addBook: (data: any) => api.post('/library/books', data),
-  issueBook: (data: any) => api.post('/library/issue', data),
-  returnBook: (data: any) => api.post('/library/return', data),
-  getIssuedBooks: (params?: any) => api.get('/library/issued', { params }),
-};
-
-// ─── Timetable ─────────────────────────────────
-export const timetableApi = {
-  getPeriods: () => api.get('/timetable/periods'),
-  createPeriod: (data: any) => api.post('/timetable/periods', data),
-  getSlots: (params: any) => api.get('/timetable/slots', { params }),
-  createSlot: (data: any) => api.post('/timetable/slots', data),
-};
-
-// ─── Transport ─────────────────────────────────
-export const transportApi = {
-  getVehicles: () => api.get('/transport/vehicles'),
-  addVehicle: (data: any) => api.post('/transport/vehicles', data),
-  getRoutes: () => api.get('/transport/routes'),
-  createRoute: (data: any) => api.post('/transport/routes', data),
-  assignStudent: (data: any) => api.post('/transport/assign', data),
-};
-
-// ─── Payroll ───────────────────────────────────
-export const payrollApi = {
-  getStructures: () => api.get('/payroll/structures'),
-  createStructure: (data: any) => api.post('/payroll/structures', data),
-  getPayslips: (params?: any) => api.get('/payroll/payslips', { params }),
-  generatePayslip: (data: any) => api.post('/payroll/generate', data),
-};
-
-// ─── Complaints ────────────────────────────────
-export const complaintsApi = {
-  getTypes: () => api.get('/complaints/types'),
-  createType: (data: any) => api.post('/complaints/types', data),
-  getAll: (params?: any) => api.get('/complaints', { params }),
-  create: (data: FormData) => api.post('/complaints', data, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  }),
-  acknowledge: (id: string, data: any) => api.patch(`/complaints/${id}/acknowledge`, data),
-};
-
-// ─── Staff / Users ─────────────────────────────
-export const staffApi = {
-  getAll: (params?: any) => api.get('/users', { params }),
-  create: (data: any) => api.post('/users', data),
-  update: (id: string, data: any) => api.put(`/users/${id}`, data),
-  deactivate: (id: string) => api.patch(`/users/${id}/deactivate`),
-};
-
-// ─── Calendar ──────────────────────────────────
-export const calendarApi = {
-  getWorkingDays: (params?: any) => api.get('/calendar', { params }),
-  addHoliday: (data: any) => api.post('/calendar/holiday', data),
-};
-
-// ─── Notifications ─────────────────────────────
-export const notificationsApi = {
-  getAll: (params?: any) => api.get('/notifications', { params }),
-  create: (data: any) => api.post('/notifications', data),
-  markRead: (id: string) => api.patch(`/notifications/${id}/read`),
-};
-
-// ─── Session ───────────────────────────────────
-export const sessionApi = {
-  getYears: () => api.get('/session/years'),
-  createYear: (data: any) => api.post('/session/years', data),
-  getConfig: (yearId: string) => api.get(`/session/config/${yearId}`),
-  saveConfig: (data: any) => api.post('/session/config', data),
-  previewPromotion: (fromYearId: string) => api.get(`/session/promotion/preview/${fromYearId}`),
-  draftPromotion: (data: any) => api.post('/session/promotion/draft', data),
-  confirmPromotion: (data: any) => api.post('/session/promotion/confirm', data),
-};
-
-// ─── ID Cards ──────────────────────────────────
+// ─── ID Cards ──────────────────────────────────────────
 export const idcardsApi = {
-  generate: (admissionNumber: string) =>
-    api.get(`/idcards/${admissionNumber}`, { responseType: 'blob' }),
-  bulkGenerate: (data: any) =>
-    api.post('/idcards/bulk', data, { responseType: 'blob' }),
+  generate:     (admNo:string) => api.get(`/idcards/${admNo}`,{responseType:'blob'}),
+  bulkGenerate: (d:any) => api.post('/idcards/bulk',d,{responseType:'blob'}),
+};
+
+// ─── Library ───────────────────────────────────────────
+export const libraryApi = {
+  getBooks:   (p?:any) => api.get('/library/books',{params:p}),
+  addBook:    (d:any) => api.post('/library/books',d),
+  updateBook: (id:string,d:any) => api.put(`/library/books/${id}`,d),
+  deleteBook: (id:string) => api.delete(`/library/books/${id}`),
+  issueBook:  (d:any) => api.post('/library/issue',d),
+  returnBook: (d:any) => api.post('/library/return',d),
+  getIssued:  (p?:any) => api.get('/library/issued',{params:p}),
+  getOverdue: () => api.get('/library/overdue'),
+};
+
+// ─── Timetable ─────────────────────────────────────────
+export const timetableApi = {
+  getPeriods:      () => api.get('/timetable/periods'),
+  createPeriod:    (d:any) => api.post('/timetable/periods',d),
+  deletePeriod:    (id:string) => api.delete(`/timetable/periods/${id}`),
+  getSlots:        (p:any) => api.get('/timetable/slots',{params:p}),
+  createSlot:      (d:any) => api.post('/timetable/slots',d),
+  bulkCreateSlots: (d:any) => api.post('/timetable/slots/bulk',d),
+  deleteSlot:      (id:string) => api.delete(`/timetable/slots/${id}`),
+};
+
+// ─── Transport ─────────────────────────────────────────
+export const transportApi = {
+  getVehicles:    () => api.get('/transport/vehicles'),
+  addVehicle:     (d:any) => api.post('/transport/vehicles',d),
+  updateVehicle:  (id:string,d:any) => api.put(`/transport/vehicles/${id}`,d),
+  getRoutes:      () => api.get('/transport/routes'),
+  createRoute:    (d:any) => api.post('/transport/routes',d),
+  getRoute:       (id:string) => api.get(`/transport/routes/${id}`),
+  assignStudent:  (d:any) => api.post('/transport/assign',d),
+  unassign:       (id:string) => api.delete(`/transport/assign/${id}`),
+  getAssignments: (p?:any) => api.get('/transport/assignments',{params:p}),
+};
+
+// ─── Payroll ───────────────────────────────────────────
+export const payrollApi = {
+  getStructures:  () => api.get('/payroll/structures'),
+  createStructure:(d:any) => api.post('/payroll/structures',d),
+  updateStructure:(id:string,d:any) => api.put(`/payroll/structures/${id}`,d),
+  getPayslips:    (p?:any) => api.get('/payroll/payslips',{params:p}),
+  generatePayslip:(d:any) => api.post('/payroll/generate',d),
+  getPayslip:     (id:string) => api.get(`/payroll/payslips/${id}`,{responseType:'blob'}),
+};
+
+// ─── Complaints ────────────────────────────────────────
+export const complaintsApi = {
+  getTypes:    () => api.get('/complaints/types'),
+  createType:  (d:any) => api.post('/complaints/types',d),
+  updateType:  (id:string,d:any) => api.put(`/complaints/types/${id}`,d),
+  getAll:      (p?:any) => api.get('/complaints',{params:p}),
+  getOne:      (id:string) => api.get(`/complaints/${id}`),
+  create:      (d:FormData) => api.post('/complaints',d,{headers:{'Content-Type':'multipart/form-data'}}),
+  acknowledge: (id:string,d:any) => api.patch(`/complaints/${id}/acknowledge`,d),
+  resolve:     (id:string,d:any) => api.patch(`/complaints/${id}/resolve`,d),
+};
+
+// ─── Staff ─────────────────────────────────────────────
+export const staffApi = {
+  getAll:     (p?:any) => api.get('/users',{params:p}),
+  getOne:     (id:string) => api.get(`/users/${id}`),
+  create:     (d:any) => api.post('/users',d),
+  update:     (id:string,d:any) => api.put(`/users/${id}`,d),
+  deactivate: (id:string) => api.patch(`/users/${id}/deactivate`),
+  activate:   (id:string) => api.patch(`/users/${id}/activate`),
+  resetPassword:(id:string,d:any) => api.post(`/users/${id}/reset-password`,d),
+};
+
+// ─── Calendar ──────────────────────────────────────────
+export const calendarApi = {
+  getAll:      (p?:any) => api.get('/calendar',{params:p}),
+  addHoliday:  (d:any) => api.post('/calendar/holiday',d),
+  addWorkingDay:(d:any) => api.post('/calendar/working-day',d),
+  deleteEntry: (id:string) => api.delete(`/calendar/${id}`),
+};
+
+// ─── Notifications ─────────────────────────────────────
+export const notificationsApi = {
+  getAll:    (p?:any) => api.get('/notifications',{params:p}),
+  create:    (d:any) => api.post('/notifications',d),
+  markRead:  (id:string) => api.patch(`/notifications/${id}/read`),
+  markAllRead:() => api.patch('/notifications/read-all'),
+  delete:    (id:string) => api.delete(`/notifications/${id}`),
+};
+
+// ─── Session ───────────────────────────────────────────
+export const sessionApi = {
+  getYears:          () => api.get('/session/years'),
+  createYear:        (d:any) => api.post('/session/years',d),
+  updateYear:        (id:string,d:any) => api.put(`/session/years/${id}`,d),
+  setCurrentYear:    (id:string) => api.patch(`/session/years/${id}/set-current`),
+  getConfig:         (p?:any) => api.get('/session/config',{params:p}),
+  saveConfig:        (d:any) => api.post('/session/config',d),
+  previewPromotion:  (id:string) => api.get(`/session/promotion/preview/${id}`),
+  draftPromotion:    (d:any) => api.post('/session/promotion/draft',d),
+  confirmPromotion:  (d:any) => api.post('/session/promotion/confirm',d),
+  rollbackPromotion: (d:any) => api.post('/session/promotion/rollback',d),
+};
+
+// ─── Portals ───────────────────────────────────────────
+export const portalApi = {
+  createStudentAccess: (d:any) => api.post('/admissions/portal/student',d),
+  createParentAccess:  (d:any) => api.post('/admissions/portal/parent',d),
 };
 
 export default api;

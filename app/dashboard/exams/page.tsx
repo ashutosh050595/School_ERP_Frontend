@@ -28,7 +28,7 @@ function ExamTerms() {
   const [deleteId, setDeleteId] = useState<string|null>(null);
   const [deleting, setDeleting] = useState(false);
   const load = () => { setLoading(true); examsApi.getTerms().then(r=>setTerms(r.data.data||[])).catch(()=>toast.error('Failed')).finally(()=>setLoading(false)); };
-  useEffect(()=>load(),[]);
+  useEffect(() => { load(); }, []);
 
   const deleteTerm = async () => {
     if(!deleteId) return; setDeleting(true);
@@ -78,7 +78,7 @@ function TermDetail({ term, onClose }:any) {
   const [form, setForm]         = useState({name:'',code:'',maxMarks:'100',passingMarks:'33',theoryMax:'',practicalMax:''});
   const [saving, setSaving]     = useState(false);
   const load = () => examsApi.getSubjects(term.id).then(r=>setSubjects(r.data.data||[])).catch(()=>{}).finally(()=>setLoading(false));
-  useEffect(()=>load(),[term.id]);
+  useEffect(() => { load(); }, [term.id]);
   const addSubject = async (e:React.FormEvent) => {
     e.preventDefault(); setSaving(true);
     try {

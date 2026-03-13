@@ -30,7 +30,7 @@ function PayslipsTab() {
     try { const r = await payrollApi.getPayslips({month:month||undefined,year:year||undefined}); setPayslips(r.data.data||[]); }
     catch{ toast.error('Failed'); } finally{ setLoading(false); }
   };
-  useEffect(()=>load(),[]);
+  useEffect(() => { load(); }, []);
 
   const download = async (id:string, name:string) => {
     try { const r = await payrollApi.getPayslip(id); downloadBlob(r.data,`payslip-${name}.pdf`); }

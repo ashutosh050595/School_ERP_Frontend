@@ -37,7 +37,7 @@ function BooksTab() {
     try { const r = await libraryApi.getBooks({page,limit:LIMIT,search:search||undefined}); setBooks(r.data.data?.books||r.data.data||[]); setTotal(r.data.data?.total||0); }
     catch{ toast.error('Failed'); } finally{ setLoading(false); }
   },[page,search]);
-  useEffect(()=>load(),[load]);
+  useEffect(() => { load(); }, [load]);
 
   const deleteBook = async () => {
     if(!deleteId) return; setDeleting(true);
@@ -91,7 +91,7 @@ function IssuedTab() {
   const [returning, setReturning] = useState<string|null>(null);
 
   const load = () => { setLoading(true); libraryApi.getIssued().then(r=>setIssued(r.data.data||[])).catch(()=>toast.error('Failed')).finally(()=>setLoading(false)); };
-  useEffect(()=>load(),[]);
+  useEffect(() => { load(); }, []);
 
   const returnBook = async (id:string) => {
     setReturning(id);

@@ -10,7 +10,9 @@ export default function ComplaintsPage() {
   const [tab, setTab] = useState('list');
   const [types, setTypes]   = useState<any[]>([]);
   const loadTypes = () => complaintsApi.getTypes().then(r=>setTypes(r.data.data||[])).catch(()=>{});
-  useEffect(()=>loadTypes(),[]);
+  useEffect(() => {
+  loadTypes();
+}, []);
   return (
     <div className="space-y-5 max-w-7xl">
       <div className="page-header"><div><h1 className="page-title">Complaints</h1><p className="page-sub">Manage student and parent complaints</p></div></div>

@@ -23,7 +23,7 @@ export default function StaffPage() {
     try { const r = await staffApi.getAll({page,limit:LIMIT,search:search||undefined,role:roleFilter||undefined}); const d=r.data.data; setStaff(d?.users||d||[]); setTotal(d?.total||0); }
     catch{ toast.error('Failed'); } finally{ setLoading(false); }
   },[page,search,roleFilter]);
-  useEffect(()=>load(),[load]);
+  useEffect(() => { load(); }, [load]);
 
   const toggleStatus = async (id:string, isActive:boolean) => {
     try { if(isActive) await staffApi.deactivate(id); else await staffApi.activate(id); toast.success(isActive?'Deactivated':'Activated'); load(); }

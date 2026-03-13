@@ -18,7 +18,9 @@ export default function CalendarPage() {
     try { const r = await calendarApi.getAll({year,month}); setEntries(r.data.data||[]); }
     catch { toast.error('Failed'); } finally { setLoading(false); }
   };
-  useEffect(()=>load(),[year,month]);
+  useEffect(() => {
+  load();
+}, [year, month]);
 
   const deleteEntry = async (id:string) => {
     try { await calendarApi.deleteEntry(id); toast.success('Deleted'); load(); }

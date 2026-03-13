@@ -10,9 +10,7 @@ export default function ComplaintsPage() {
   const [tab, setTab] = useState('list');
   const [types, setTypes]   = useState<any[]>([]);
   const loadTypes = () => complaintsApi.getTypes().then(r=>setTypes(r.data.data||[])).catch(()=>{});
-  useEffect(() => {
-  loadTypes();
-}, []);
+  useEffect(() => { loadTypes(); }, []);
   return (
     <div className="space-y-5 max-w-7xl">
       <div className="page-header"><div><h1 className="page-title">Complaints</h1><p className="page-sub">Manage student and parent complaints</p></div></div>
@@ -34,14 +32,14 @@ function ComplaintsList({ types }:any) {
   const [selected, setSelected]     = useState<any>(null);
   const LIMIT = 15;
 
-  const load = useCallback(async()=>{
+  const load = useCallback(async() => {
     setLoading(true);
     try {
       const r = await complaintsApi.getAll({page,limit:LIMIT,search:search||undefined,status:statusFilter||undefined});
       const d = r.data.data; setComplaints(Array.isArray(d)?d:d?.complaints||[]); setTotal(d?.total||0);
     } catch{ toast.error('Failed'); } finally{ setLoading(false); }
   },[page,search,statusFilter]);
-  useEffect(()=>load(),[load]);
+  useEffect(() => { load(); }, [load]);
 
   const acknowledge = async (id:string) => {
     const remarks = window.prompt('Acknowledgement remarks (optional):');

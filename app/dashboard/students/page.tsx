@@ -401,3 +401,22 @@ const Section = ({title,children}:any) => <div><p className="text-xs font-bold t
 const Row2 = ({children}:any) => <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">{children}</div>;
 const Row3 = ({children}:any) => <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">{children}</div>;
 const F = ({label,children}:any) => <div><label className="form-label">{label}</label>{children}</div>;
+
+
+function BulkUploadRedirect() {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 text-center space-y-4">
+      <div className="w-16 h-16 rounded-2xl bg-primary-50 flex items-center justify-center">
+        <Upload className="w-8 h-8 text-primary-500"/>
+      </div>
+      <div>
+        <p className="font-bold text-slate-800 text-lg">Bulk Student Upload</p>
+        <p className="text-slate-400 text-sm mt-1 max-w-xs mx-auto">Configure columns, download a template, fill it in Excel, then import all students at once.</p>
+      </div>
+      <a href="/dashboard/students/bulk" className="btn-primary py-3 px-8 text-base">
+        <Upload className="w-5 h-5"/>Open Bulk Upload
+      </a>
+    </div>
+  );
+}
+

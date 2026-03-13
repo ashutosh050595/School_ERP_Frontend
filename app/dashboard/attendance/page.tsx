@@ -266,38 +266,103 @@ function StudentAttendance() {
     </div>
   );
 }
+
+function AttendanceSummary() {
   const [summary, setSummary] = useState<any>(null);
   const [date, setDate]       = useState(new Date().toISOString().split('T')[0]);
   const [loading, setLoading] = useState(false);
 
   const load = async () => {
     setLoading(true);
-    try { const r = await attendanceApi.getSummary({date}); setSummary(r.data.data); }
-    catch { toast.error('Failed'); }
-    finally { setLoading(false); }
+    try {
+      const r = await attendanceApi.getSummary({ date });
+      setSummary(r.data.data);
+    } catch {
+      toast.error('Failed');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const chartData = summary?.byClass?.map((c:any)=>({name:c.className,present:c.present,absent:c.absent})) || [];
+  const chartData = summary?.byClass?.map((c: any) => ({
+    name: c.className,
+    present: c.present,
+    absent: c.absent,
+  })) || [];
 
   return (
     <div className="space-y-4">
       <div className="card p-4 flex gap-3 items-end">
-        <div><label className="form-label">Date</label><input type="date" value={date} onChange={e=>setDate(e.target.value)} className="form-input"/></div>
-        <button onClick={load} className="btn-primary">Load Summary</button>
+        <div>
+          <label className="form-label">Date</label>
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            className="form-input"
+          />
+        </div>
+        <button onClick={load} className="btn-primary">
+          Load Summary
+        </button>
       </div>
-      {loading && <div className="card p-8 text-center"><div className="w-6 h-6 border-2 border-primary-600 border-t-transparent rounded-full animate-spin mx-auto"/></div>}
+
+      {loading && (
+        <div className="card p-8 text-center">
+          <div className="w-6 h-6 border-2 border-primary-600 border-t-transparent rounded-full animate-spin mx-auto" />
+        </div>
+      )}
+
       {summary && !loading && (
         <div className="space-y-4">
           <div className="grid grid-cols-3 gap-4">
-            <StatCard icon={UserCheck} iconBg="bg-green-50" color="text-green-600" label="Present" value={summary.totalPresent||0}/>
-            <StatCard icon={UserX} iconBg="bg-red-50" color="text-red-600" label="Absent" value={summary.totalAbsent||0}/>
-            <StatCard icon={BarChart2} iconBg="bg-blue-50" color="text-blue-600" label="Attendance %" value={`${summary.percentage||0}%`}/>
+            <StatCard
+              icon={UserCheck}
+              iconBg="bg-green-50"
+              color="text-green-600"
+              label="Present"
+              value={summary.totalPresent || 0}
+            />
+            <StatCard
+              icon={UserX}
+              iconBg="bg-red-50"
+              color="text-red-600"
+              label="Absent"
+              value={summary.totalAbsent || 0}
+            />
+            <StatCard
+              icon={BarChart2}
+              iconBg="bg-blue-50"
+              color="text-blue-600"
+              label="Attendance %"
+              value={`${summary.percentage || 0}%`}
+            />
           </div>
-          {chartData.length>0 && (
+
+          {chartData.length > 0 && (
             <div className="card p-5">
-              <h3 className="font-semibold text-slate-700 mb-4">Class-wise Attendance</h3>
+              <h3 className="font-semibold text-slate-700 mb-4">
+                Class-wise Attendance
+              </h3>
               <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={chartData}><CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9"/><XAxis dataKey="name" tick={{fontSize:11}}/><YAxis tick={{fontSize:11}}/><Tooltip/><Bar dataKey="present" fill="#22c55e" name="Present" radius={[3,3,0,0]}/><Bar dataKey="absent" fill="#f87171" name="Absent" radius={[3,3,0,0]}/></BarChart>
+                <BarChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip />
+                  <Bar
+                    dataKey="present"
+                    fill="#22c55e"
+                    name="Present"
+                    radius={[3, 3, 0, 0]}
+                  />
+                  <Bar
+                    dataKey="absent"
+                    fill="#f87171"
+                    name="Absent"
+                    radius={[3, 3, 0, 0]}
+                  />
+                </BarChart>
               </ResponsiveContainer>
             </div>
           )}

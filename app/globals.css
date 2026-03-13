@@ -1,0 +1,139 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --navy-950: #020b18;
+  --navy-900: #0a1628;
+  --navy-800: #0f2040;
+  --navy-700: #162d58;
+  --gold-500: #c9a84c;
+  --gold-400: #d4b86a;
+  --gold-300: #e8d5a3;
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  background-color: var(--navy-900);
+  color: #e2e8f0;
+  font-family: var(--font-dm-sans), system-ui, sans-serif;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--navy-800); }
+::-webkit-scrollbar-thumb { background: rgba(201,168,76,0.3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(201,168,76,0.5); }
+
+/* Selection */
+::selection { background: rgba(201,168,76,0.3); color: #fff; }
+
+/* Gold shimmer effect */
+.gold-shimmer {
+  background: linear-gradient(90deg, #c9a84c 0%, #e8d5a3 50%, #c9a84c 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: shimmer 3s linear infinite;
+}
+@keyframes shimmer { to { background-position: 200% center; } }
+
+/* Glass card */
+.glass-card {
+  background: linear-gradient(145deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+/* Navy card */
+.navy-card {
+  background: var(--navy-800);
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+/* Input styles */
+.form-input {
+  @apply w-full bg-navy-900 border border-white/10 rounded-lg px-4 py-2.5 text-white 
+         placeholder-white/30 focus:outline-none focus:border-gold-500/50 focus:ring-1 
+         focus:ring-gold-500/30 transition-all duration-200 text-sm;
+}
+
+.form-label {
+  @apply block text-sm font-medium text-white/60 mb-1.5;
+}
+
+/* Table styles */
+.data-table {
+  @apply w-full text-sm;
+}
+.data-table thead tr {
+  @apply border-b border-white/10;
+}
+.data-table thead th {
+  @apply text-left text-xs font-semibold text-white/40 uppercase tracking-wider py-3 px-4;
+}
+.data-table tbody tr {
+  @apply border-b border-white/5 hover:bg-white/3 transition-colors duration-150;
+}
+.data-table tbody td {
+  @apply py-3 px-4 text-white/80;
+}
+
+/* Badge */
+.badge {
+  @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+}
+
+/* Stat card gradient borders */
+.stat-card {
+  position: relative;
+  background: var(--navy-800);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.stat-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(201,168,76,0.4) 0%, transparent 60%);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* Page animation */
+.page-enter {
+  animation: pageEnter 0.4s ease-out;
+}
+@keyframes pageEnter {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Sidebar active */
+.nav-active {
+  background: linear-gradient(90deg, rgba(201,168,76,0.15) 0%, rgba(201,168,76,0.05) 100%);
+  border-left: 3px solid #c9a84c;
+  color: #c9a84c;
+}
+
+/* Button variants */
+.btn-gold {
+  @apply bg-gold-500 hover:bg-gold-400 text-navy-900 font-semibold px-4 py-2 rounded-lg 
+         transition-all duration-200 flex items-center gap-2 text-sm shadow-gold;
+}
+.btn-outline {
+  @apply border border-white/20 hover:border-gold-500/50 hover:bg-white/5 text-white/70 
+         hover:text-white px-4 py-2 rounded-lg transition-all duration-200 flex items-center gap-2 text-sm;
+}
+.btn-ghost {
+  @apply hover:bg-white/5 text-white/60 hover:text-white px-3 py-2 rounded-lg 
+         transition-all duration-200 flex items-center gap-2 text-sm;
+}

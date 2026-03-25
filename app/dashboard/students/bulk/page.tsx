@@ -594,21 +594,21 @@ export default function BulkUploadPage() {
                 <tbody>
                   <tr className="bg-blue-50">
                     {activeFields.map(f => (
-                      <td key={f.key} className="px-3 py-2 text-blue-600 italic whitespace-nowrap">{f.example}蹲蹲
+                      <td key={f.key} className="px-3 py-2 text-blue-600 italic whitespace-nowrap">{f.example}</td>
                     ))}
                   </tr>
                   <tr className="bg-slate-50">
                     {activeFields.map(f => (
-                      <td key={f.key} className="px-3 py-1.5 text-slate-400 text-xs whitespace-nowrap">{f.hint}蹲蹲
+                      <td key={f.key} className="px-3 py-1.5 text-slate-400 text-xs whitespace-nowrap">{f.hint}</td>
                     ))}
                   </tr>
                   <tr>
                     {activeFields.map(f => (
-                      <td key={f.key} className="px-3 py-2 text-slate-300 italic">← your data here蹲蹲
+                      <td key={f.key} className="px-3 py-2 text-slate-300 italic">← your data here</td>
                     ))}
                   </tr>
                 </tbody>
-               </table>
+              </table>
             </div>
             <div className="flex items-start gap-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-700">
               <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5"/>

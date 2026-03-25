@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Search, Eye, Edit, Trash2, GraduationCap, Upload, Download, Filter, X, Camera } from 'lucide-react';
-import { studentsApi, idcardsApi } from '@/lib/api';
+import { Plus, Search, Eye, Edit, Trash2, GraduationCap, Upload, Download, Filter, X, Camera, AlertCircle } from 'lucide-react';
+import { studentsApi, idcardsApi, api } from '@/lib/api';
 import { fmt, downloadBlob, GENDERS, BLOOD_GROUPS, CATEGORIES } from '@/lib/utils';
 import { Modal, Confirm, Pagination, SearchInput, Empty, TableSkeleton, Avatar, Tabs } from '@/components/ui';
 import toast from 'react-hot-toast';
@@ -58,7 +58,7 @@ export default function StudentsPage() {
         <button onClick={()=>setShowAdd(true)} className="btn-primary"><Plus className="w-4 h-4"/>Admit Student</button>
       </div>
 
-      <Tabs tabs={[{key:'students',label:'All Students'},{key:'classes',label:'Classes & Sections'},{key:'photos',label:'Student Photos'},{key:'bulk',label:'⬆ Bulk Upload'}]} active={tab} onChange={setTab} />
+      <Tabs tabs={[{key:'students',label:'All Students'},{key:'classes',label:'Classes & Sections'},{key:'photos',label:'Student Photos'}]} active={tab} onChange={setTab} />
 
       {tab==='students' && <>
         <div className="card p-4 flex flex-wrap gap-3">
@@ -102,7 +102,6 @@ export default function StudentsPage() {
 
       {tab==='classes' && <ClassesManager classes={classes} reload={()=>studentsApi.getClasses().then(r=>setClasses(r.data.data||[]))}/>}
       {tab==='photos'  && <PhotosManager classes={classes}/>}
-      {tab==='bulk'    && <BulkUploadRedirect/>}
 
       {showAdd && <StudentForm onClose={()=>setShowAdd(false)} onSuccess={()=>{setShowAdd(false);load();}} classes={classes}/>}
       {editItem && <StudentForm student={editItem} onClose={()=>setEditItem(null)} onSuccess={()=>{setEditItem(null);load();}} classes={classes}/>}
@@ -242,82 +241,247 @@ function StudentProfile({ student, onClose, onIdCard }:any) {
 }
 
 function ClassesManager({ classes, reload }:any) {
-  const [showAdd, setShowAdd]   = useState(false);
-  const [newClass, setNewClass] = useState({name:'',numericValue:''});
-  const [sections, setSections] = useState<Record<string,any[]>>({});
-  const [newSec, setNewSec]     = useState<Record<string,string>>({});
-  const [expanded, setExpanded] = useState<string|null>(null);
-  const [saving, setSaving]     = useState(false);
-  const [deleteClassId, setDeleteClassId] = useState<string|null>(null);
-  const [deleting, setDeleting] = useState(false);
+  const [showAdd,      setShowAdd]      = useState(false);
+  const [expanded,     setExpanded]     = useState<string|null>(null);
+  const [deleteClassId,setDeleteClassId]= useState<string|null>(null);
+  const [deleting,     setDeleting]     = useState(false);
+  const [academicYears,setAcademicYears]= useState<any[]>([]);
+  const [yearsLoading, setYearsLoading] = useState(true);
 
-  const loadSections = async (cid:string) => {
-    const r = await studentsApi.getSections(cid);
-    setSections(p=>({...p,[cid]:r.data.data||[]}));
-  };
+  // Load academic years for the create-class form
+  useEffect(() => {
+    api.get('/admissions/academic-years')
+      .then(r => setAcademicYears(r.data.data || []))
+      .catch(() => {})
+      .finally(() => setYearsLoading(false));
+  }, []);
 
-  const toggleExpand = (id:string) => { if(expanded===id){setExpanded(null);}else{setExpanded(id);loadSections(id);} };
+  const currentYear = academicYears.find((y:any) => y.isCurrent) || academicYears[0];
 
-  const addClass = async (e:React.FormEvent) => {
-    e.preventDefault(); setSaving(true);
-    try { await studentsApi.createClass({name:newClass.name,numericValue:newClass.numericValue?Number(newClass.numericValue):undefined}); toast.success('Class created'); setNewClass({name:'',numericValue:''}); setShowAdd(false); reload(); }
-    catch(err:any){ toast.error(err.response?.data?.message||'Failed'); }
-    finally{ setSaving(false); }
-  };
-
-  const addSection = async (classId:string) => {
-    const sec = newSec[classId]; if(!sec) return;
-    try { await studentsApi.createSection(classId,{section:sec}); toast.success('Section added'); setNewSec(p=>({...p,[classId]:''})); loadSections(classId); }
-    catch(err:any){ toast.error(err.response?.data?.message||'Failed'); }
-  };
+  const toggleExpand = (id:string) => setExpanded(p => p === id ? null : id);
 
   const deleteClass = async () => {
-    if(!deleteClassId) return; setDeleting(true);
-    try { await studentsApi.deleteClass(deleteClassId); toast.success('Class deleted'); setDeleteClassId(null); reload(); }
-    catch(err:any){ toast.error(err.response?.data?.message||'Cannot delete class with students'); }
-    finally{ setDeleting(false); }
+    if (!deleteClassId) return;
+    setDeleting(true);
+    try {
+      await studentsApi.deleteClass(deleteClassId);
+      toast.success('Class deleted');
+      setDeleteClassId(null);
+      reload();
+    } catch(err:any) {
+      toast.error(err.response?.data?.message || 'Cannot delete — class may have enrolled students');
+    } finally { setDeleting(false); }
   };
 
   return (
     <div className="space-y-4">
       <div className="flex justify-end">
-        <button onClick={()=>setShowAdd(!showAdd)} className="btn-primary"><Plus className="w-4 h-4"/>Add Class</button>
+        <button onClick={()=>setShowAdd(true)} className="btn-primary">
+          <Plus className="w-4 h-4"/>Add Class
+        </button>
       </div>
-      {showAdd && (
-        <form onSubmit={addClass} className="card p-4 flex gap-3 items-end">
-          <F label="Class Name *"><input required value={newClass.name} onChange={e=>setNewClass(p=>({...p,name:e.target.value}))} className="form-input" placeholder="e.g. Class I"/></F>
-          <F label="Numeric Value"><input type="number" value={newClass.numericValue} onChange={e=>setNewClass(p=>({...p,numericValue:e.target.value}))} className="form-input w-32" placeholder="1"/></F>
-          <button type="submit" disabled={saving} className="btn-primary">Create</button>
-          <button type="button" onClick={()=>setShowAdd(false)} className="btn-secondary">Cancel</button>
-        </form>
-      )}
+
+      {/* Classes list */}
       <div className="space-y-2">
-        {classes.map((c:any)=>(
-          <div key={c.id} className="card overflow-hidden">
-            <div className="flex items-center gap-4 p-4 cursor-pointer hover:bg-slate-50" onClick={()=>toggleExpand(c.id)}>
-              <div className="w-9 h-9 rounded-lg bg-primary-50 flex items-center justify-center text-primary-600 font-bold text-sm">{c.numericValue||c.name.charAt(0)}</div>
-              <p className="font-semibold text-slate-700 flex-1">{c.name}</p>
-              <button onClick={e=>{e.stopPropagation();setDeleteClassId(c.id);}} className="btn-icon hover:text-danger-500 mr-2" title="Delete class"><Trash2 className="w-3.5 h-3.5"/></button>
-              <span className="text-xs text-slate-400">{expanded===c.id?'▲':'▼'}</span>
-            </div>
-            {expanded===c.id && (
-              <div className="px-4 pb-4 border-t border-slate-100">
-                <div className="flex flex-wrap gap-2 mt-3">
-                  {(sections[c.id]||[]).map((s:any)=>(
-                    <span key={s.id} className="badge badge-blue">Section {s.section}</span>
-                  ))}
-                </div>
-                <div className="flex gap-2 mt-3">
-                  <input value={newSec[c.id]||''} onChange={e=>setNewSec(p=>({...p,[c.id]:e.target.value}))} className="form-input w-32" placeholder="Section A"/>
-                  <button onClick={()=>addSection(c.id)} className="btn-primary text-xs py-1.5">Add Section</button>
-                </div>
-              </div>
-            )}
+        {classes.length === 0 && (
+          <div className="card p-10 text-center text-slate-400">
+            <p className="font-medium">No classes yet.</p>
+            <p className="text-sm mt-1">Create your first class using the button above.</p>
           </div>
-        ))}
+        )}
+        {classes.map((c:any) => {
+          // sections come nested in the class object from getClasses
+          const secs: any[] = c.sections || [];
+          return (
+            <div key={c.id} className="card overflow-hidden">
+              <div className="flex items-center gap-4 p-4 cursor-pointer hover:bg-slate-50" onClick={()=>toggleExpand(c.id)}>
+                <div className="w-9 h-9 rounded-lg bg-primary-50 flex items-center justify-center text-primary-600 font-bold text-sm">
+                  {c.name.replace(/[^0-9IVXivx]/g,'').slice(0,3) || c.name.charAt(0)}
+                </div>
+                <div className="flex-1">
+                  <p className="font-semibold text-slate-700">{c.name}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {secs.length} section{secs.length !== 1 ? 's' : ''}
+                    {c.academicYear?.name ? ` · ${c.academicYear.name}` : ''}
+                  </p>
+                </div>
+                <button
+                  onClick={e=>{e.stopPropagation(); setDeleteClassId(c.id);}}
+                  className="btn-icon hover:text-red-500 mr-2" title="Delete class"
+                >
+                  <Trash2 className="w-3.5 h-3.5"/>
+                </button>
+                <span className="text-xs text-slate-400">{expanded===c.id?'▲':'▼'}</span>
+              </div>
+              {expanded === c.id && (
+                <div className="px-4 pb-4 border-t border-slate-100">
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mt-3 mb-2">Sections</p>
+                  {secs.length === 0 ? (
+                    <p className="text-sm text-slate-400 italic">No sections — sections are created together with the class.</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {secs.map((s:any) => (
+                        <span key={s.id} className="badge badge-blue">Section {s.section}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
-      {deleteClassId && <Confirm title="Delete Class" message="This will permanently delete the class. Classes with enrolled students cannot be deleted." onConfirm={deleteClass} onCancel={()=>setDeleteClassId(null)} loading={deleting}/>}
+
+      {/* Create class modal */}
+      {showAdd && (
+        <CreateClassModal
+          academicYears={academicYears}
+          yearsLoading={yearsLoading}
+          defaultYearId={currentYear?.id || ''}
+          onClose={()=>setShowAdd(false)}
+          onSuccess={()=>{ setShowAdd(false); reload(); }}
+        />
+      )}
+
+      {deleteClassId && (
+        <Confirm
+          title="Delete Class"
+          message="This will permanently delete the class and all its sections. Classes with enrolled students cannot be deleted."
+          onConfirm={deleteClass}
+          onCancel={()=>setDeleteClassId(null)}
+          loading={deleting}
+        />
+      )}
     </div>
+  );
+}
+
+// Separate modal for class creation — keeps the form clean
+function CreateClassModal({ academicYears, yearsLoading, defaultYearId, onClose, onSuccess }:any) {
+  const [name,         setName]         = useState('');
+  const [academicYearId, setAcademicYearId] = useState(defaultYearId);
+  // sections: comma-separated input → split into array on submit
+  const [sectionsInput, setSectionsInput] = useState('A');
+  const [saving, setSaving] = useState(false);
+  const [error,  setError]  = useState('');
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+
+    // Parse sections: "A, B, C" → ["A","B","C"]
+    const sections = sectionsInput
+      .split(/[,;\n]+/)
+      .map(s => s.trim().toUpperCase())
+      .filter(s => s.length > 0);
+
+    if (!name.trim())        return setError('Class name is required.');
+    if (!academicYearId)     return setError('Please select an academic year. Create one in Session & Years first.');
+    if (sections.length < 1) return setError('At least one section is required (e.g. A).');
+
+    setSaving(true);
+    try {
+      await studentsApi.createClass({
+        name:          name.trim(),
+        academicYearId,
+        sections,           // ← what the backend actually expects
+      });
+      toast.success(`Class "${name.trim()}" created with ${sections.length} section${sections.length>1?'s':''}!`);
+      onSuccess();
+    } catch(err:any) {
+      const msg = err.response?.data?.message
+        || err.response?.data?.error
+        || (err.response?.data?.errors as any[])?.[0]?.message
+        || 'Failed to create class';
+      setError(msg);
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <Modal title="Create New Class" onClose={onClose} size="sm">
+      <form onSubmit={submit} className="space-y-4">
+
+        {/* Academic year picker */}
+        <div>
+          <label className="form-label">Academic Year *</label>
+          {yearsLoading ? (
+            <div className="form-input text-slate-400 text-sm">Loading years…</div>
+          ) : academicYears.length === 0 ? (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-700">
+              No academic years found. Please create one first in{' '}
+              <a href="/dashboard/session" className="font-semibold underline">Session & Years</a>.
+            </div>
+          ) : (
+            <select
+              value={academicYearId}
+              onChange={e=>setAcademicYearId(e.target.value)}
+              className="form-select"
+              required
+            >
+              <option value="">Select academic year</option>
+              {academicYears.map((y:any) => (
+                <option key={y.id} value={y.id}>
+                  {y.name}{y.isCurrent ? ' (Current)' : ''}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+
+        {/* Class name */}
+        <div>
+          <label className="form-label">Class Name *</label>
+          <input
+            required
+            value={name}
+            onChange={e=>setName(e.target.value)}
+            className="form-input"
+            placeholder="e.g. Class I, Class VI, Class X"
+          />
+        </div>
+
+        {/* Sections */}
+        <div>
+          <label className="form-label">Sections * <span className="font-normal text-slate-400">(comma-separated)</span></label>
+          <input
+            value={sectionsInput}
+            onChange={e=>setSectionsInput(e.target.value)}
+            className="form-input"
+            placeholder="A, B, C"
+          />
+          <p className="text-xs text-slate-400 mt-1.5">
+            Enter section letters separated by commas. E.g. <code className="bg-slate-100 px-1 rounded">A, B</code> creates two sections.
+            Sections cannot be added later — create all needed sections now.
+          </p>
+          {/* Preview */}
+          {sectionsInput.trim() && (
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {sectionsInput.split(/[,;\n]+/).map(s=>s.trim().toUpperCase()).filter(s=>s).map(s=>(
+                <span key={s} className="badge badge-blue">Section {s}</span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Error */}
+        {error && (
+          <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+            <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5"/>
+            <span>{error}</span>
+          </div>
+        )}
+
+        <div className="flex gap-3 pt-1">
+          <button type="button" onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
+          <button type="submit" disabled={saving || academicYears.length === 0} className="btn-primary flex-1 justify-center">
+            {saving
+              ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>Creating…</>
+              : 'Create Class'
+            }
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -402,20 +566,3 @@ const Section = ({title,children}:any) => <div><p className="text-xs font-bold t
 const Row2 = ({children}:any) => <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">{children}</div>;
 const Row3 = ({children}:any) => <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">{children}</div>;
 const F = ({label,children}:any) => <div><label className="form-label">{label}</label>{children}</div>;
-
-function BulkUploadRedirect() {
-  return (
-    <div className="flex flex-col items-center justify-center py-16 text-center space-y-4">
-      <div className="w-16 h-16 rounded-2xl bg-primary-50 flex items-center justify-center">
-        <Upload className="w-8 h-8 text-primary-500"/>
-      </div>
-      <div>
-        <p className="font-bold text-slate-800 text-lg">Bulk Student Upload</p>
-        <p className="text-slate-400 text-sm mt-1 max-w-xs mx-auto">Configure columns, download a template, fill it in Excel, then import all students at once.</p>
-      </div>
-      <a href="/dashboard/students/bulk" className="btn-primary py-3 px-8 text-base">
-        <Upload className="w-5 h-5"/>Open Bulk Upload
-      </a>
-    </div>
-  );
-}

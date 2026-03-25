@@ -584,16 +584,23 @@ export default function BulkUploadPage() {
                         {f.label}{f.required?' *':''}
                       </th>
                     ))}
-                  </thead>
+                  </tr>
+                </thead>
                 <tbody>
                   <tr className="bg-blue-50">
-                    {activeFields.map(f=><td key={f.key} className="px-3 py-2 text-blue-600 italic whitespace-nowrap">{f.example}</td>)}
+                    {activeFields.map(f => (
+                      <td key={f.key} className="px-3 py-2 text-blue-600 italic whitespace-nowrap">{f.example}</td>
+                    ))}
                   </tr>
                   <tr className="bg-slate-50">
-                    {activeFields.map(f=><td key={f.key} className="px-3 py-1.5 text-slate-400 text-xs whitespace-nowrap">{f.hint}</td>)}
+                    {activeFields.map(f => (
+                      <td key={f.key} className="px-3 py-1.5 text-slate-400 text-xs whitespace-nowrap">{f.hint}</td>
+                    ))}
                   </tr>
                   <tr>
-                    {activeFields.map(f=><td key={f.key} className="px-3 py-2 text-slate-300 italic">← your data here</td>)}
+                    {activeFields.map(f => (
+                      <td key={f.key} className="px-3 py-2 text-slate-300 italic">← your data here</td>
+                    ))}
                   </tr>
                 </tbody>
               </table>

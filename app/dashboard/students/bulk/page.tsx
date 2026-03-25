@@ -23,7 +23,7 @@ import toast from 'react-hot-toast';
 // ─────────────────────────────────────────────────────────────────
 // Field catalogue — every student field the system knows about
 // ─────────────────────────────────────────────────────────────────
-const ALL_FIELDS: FieldDef[] = [
+export const ALL_FIELDS: FieldDef[] = [
   // ── Required (locked on)
   { key:'name',              label:'Student Name',        required:true,  group:'Basic',   hint:'Full legal name', example:'Aarav Kumar' },
   { key:'admissionNumber',   label:'Admission Number',    required:true,  group:'Basic',   hint:'Unique ID for the student', example:'2025001' },
@@ -248,15 +248,58 @@ export default function BulkUploadPage() {
     e.target.value = '';
   };
 
+  // ── Speed presets (ms between requests)
+  const SPEEDS = [
+    { label:'Slow (safe)',   ms:1200, desc:'1.2s gap — recommended for 50+ students' },
+    { label:'Normal',        ms:700,  desc:'0.7s gap — good for up to 50 students' },
+    { label:'Fast',          ms:350,  desc:'0.35s gap — small batches only (<20)' },
+  ];
+  const [speedIdx,   setSpeedIdx]   = useState(0); // default: Slow
+  const [paused,     setPaused]     = useState(false);
+  const [rateLimited,setRateLimited]= useState(false);
+  const [currentRow, setCurrentRow] = useState(0);
+  const abortRef = useRef(false);
+  const pauseRef = useRef(false);
+
+  const stopImport = () => { abortRef.current = true; setPaused(false); };
+
+  // Retry a request up to maxRetries times on 429, with exponential backoff
+  const withRetry = async (fn: () => Promise<any>, maxRetries = 4): Promise<any> => {
+    let lastErr: any;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const result = await fn();
+        setRateLimited(false);
+        return result;
+      } catch(err: any) {
+        lastErr = err;
+        const status = err?.response?.status;
+        // 429 = rate limited, 503 = server busy — wait and retry
+        if ((status === 429 || status === 503) && attempt < maxRetries) {
+          const waitMs = Math.min(2000 * Math.pow(2, attempt), 16000); // 2s → 4s → 8s → 16s
+          setRateLimited(true);
+          toast(`Rate limited — waiting ${waitMs/1000}s before retry ${attempt+1}/${maxRetries}…`, { icon:'⏳', id:'rate-limit', duration: waitMs });
+          await new Promise(r => setTimeout(r, waitMs));
+          setRateLimited(false);
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw lastErr;
+  };
+
   // ── Step 4: import rows
   const runImport = async () => {
     setImporting(true);
     setProgress(0);
+    setRateLimited(false);
+    abortRef.current = false;
+    pauseRef.current = false;
     const res: RowResult[] = [];
 
-    // Pre-load sections for all classes we'll encounter
-    const classMap: Record<string, string>    = {};
-    const sectionMap: Record<string, string>  = {};
+    // Build class name → id map
+    const classMap: Record<string, string> = {};
     classes.forEach(c => { classMap[c.name.toLowerCase().trim()] = c.id; });
 
     // Fetch sections lazily, cache by classId
@@ -268,12 +311,27 @@ export default function BulkUploadPage() {
       return sectionCache[classId];
     };
 
+    const delay = SPEEDS[speedIdx].ms;
+
     for (let i = 0; i < rows.length; i++) {
+      // Abort check
+      if (abortRef.current) {
+        toast('Import stopped.', { icon:'⛔' });
+        break;
+      }
+
+      // Pause: wait until unpaused
+      while (pauseRef.current) {
+        await new Promise(r => setTimeout(r, 300));
+        if (abortRef.current) break;
+      }
+      if (abortRef.current) break;
+
+      setCurrentRow(i + 1);
       const row = rows[i];
 
-      // Resolve classId / sectionId from names
-      let classId   = '';
-      let sectionId = '';
+      // Resolve class/section IDs
+      let classId = '', sectionId = '';
       if (row.className) {
         classId = classMap[row.className.toLowerCase().trim()] || '';
         if (classId && row.sectionName) {
@@ -283,66 +341,88 @@ export default function BulkUploadPage() {
         }
       }
 
-      // Build API body
-      const body: any = {
-        name:            row.name,
-        admissionNumber: row.admissionNumber,
-        dob:             row.dob         || undefined,
-        gender:          row.gender      || undefined,
-        phone:           row.phone       || undefined,
-        address:         row.address     || undefined,
-        classId:         classId         || undefined,
-        sectionId:       sectionId       || undefined,
-        religion:        row.religion    || undefined,
-        category:        row.category    || 'GENERAL',
-        bloodGroup:      row.bloodGroup  || undefined,
-        rollNumber:      row.rollNumber  || undefined,
-        nationality:     row.nationality || undefined,
-        aadharNumber:    row.aadharNumber|| undefined,
-        previousSchool:  row.previousSchool || undefined,
-        parent: {
-          fatherName:       row.fatherName       || undefined,
-          motherName:       row.motherName       || undefined,
-          primaryPhone:     row.parentPhone      || undefined,
-          email:            row.parentEmail      || undefined,
-          occupation:       row.parentOccupation || undefined,
-          emergencyContact: row.emergencyContact || undefined,
-        },
-      };
+      // Build API body — strip all undefined/empty values
+      const parent: any = {};
+      if (row.fatherName)       parent.fatherName       = row.fatherName;
+      if (row.motherName)       parent.motherName       = row.motherName;
+      if (row.parentPhone)      parent.primaryPhone     = row.parentPhone;
+      if (row.parentEmail)      parent.email            = row.parentEmail;
+      if (row.parentOccupation) parent.occupation       = row.parentOccupation;
+      if (row.emergencyContact) parent.emergencyContact = row.emergencyContact;
 
-      // Validate required
-      if (!body.name || !body.admissionNumber || !body.parent?.primaryPhone) {
-        res.push({ row: i + 1, name: row.name || '—', admNo: row.admissionNumber || '—', status: 'error', message: 'Missing required field: Name, Admission Number, or Parent Phone' });
-        setProgress(Math.round(((i + 1) / rows.length) * 100));
+      const body: any = { name: row.name, admissionNumber: row.admissionNumber };
+      if (row.dob)            body.dob            = row.dob;
+      if (row.gender)         body.gender         = row.gender;
+      if (row.phone)          body.phone          = row.phone;
+      if (row.address)        body.address        = row.address;
+      if (classId)            body.classId        = classId;
+      if (sectionId)          body.sectionId      = sectionId;
+      if (row.religion)       body.religion       = row.religion;
+      if (row.category)       body.category       = row.category;
+      if (row.bloodGroup)     body.bloodGroup     = row.bloodGroup;
+      if (row.rollNumber)     body.rollNumber     = row.rollNumber;
+      if (row.nationality)    body.nationality    = row.nationality;
+      if (row.aadharNumber)   body.aadharNumber   = row.aadharNumber;
+      if (row.previousSchool) body.previousSchool = row.previousSchool;
+      if (Object.keys(parent).length > 0) body.parent = parent;
+
+      // Client-side validation
+      if (!body.name || !body.admissionNumber) {
+        res.push({ row:i+1, name:row.name||'—', admNo:row.admissionNumber||'—', status:'error', message:'Missing Name or Admission Number' });
+        setProgress(Math.round(((i+1)/rows.length)*100));
+        setResults([...res]);
+        continue;
+      }
+      if (!body.parent?.primaryPhone) {
+        res.push({ row:i+1, name:row.name, admNo:row.admissionNumber, status:'error', message:'Missing Parent Phone (required)' });
+        setProgress(Math.round(((i+1)/rows.length)*100));
+        setResults([...res]);
         continue;
       }
 
       try {
-        await studentsApi.create(body);
-        res.push({ row: i + 1, name: body.name, admNo: body.admissionNumber, status: 'success', message: 'Admitted successfully' });
+        await withRetry(() => studentsApi.create(body));
+        res.push({ row:i+1, name:body.name, admNo:body.admissionNumber, status:'success', message:'Admitted' });
       } catch(err: any) {
-        const msg = err.response?.data?.message || err.response?.data?.error || 'Failed';
-        res.push({ row: i + 1, name: body.name, admNo: body.admissionNumber, status: 'error', message: msg });
+        const status = err?.response?.status;
+        const data   = err?.response?.data;
+        let msg = data?.message || data?.error || data?.errors?.[0]?.message || `Error ${status||''}`;
+        if (status === 429) msg = 'Rate limited — try slower speed next time';
+        if (status === 404) msg = 'API route not found — check backend';
+        if (status === 409) msg = 'Admission number already exists';
+        res.push({ row:i+1, name:body.name, admNo:body.admissionNumber, status:'error', message: msg });
       }
 
-      setProgress(Math.round(((i + 1) / rows.length) * 100));
+      setProgress(Math.round(((i+1)/rows.length)*100));
       setResults([...res]);
-      // Small delay to avoid rate limit
-      if (i < rows.length - 1) await new Promise(r => setTimeout(r, 150));
+
+      // Delay between requests
+      if (i < rows.length - 1) await new Promise(r => setTimeout(r, delay));
     }
 
     setImporting(false);
+    setCurrentRow(0);
+    abortRef.current = false;
+    pauseRef.current = false;
+    setPaused(false);
+
     const ok  = res.filter(r => r.status === 'success').length;
     const err = res.filter(r => r.status === 'error').length;
     if (err === 0) toast.success(`All ${ok} students admitted!`);
-    else toast.error(`${ok} succeeded, ${err} failed — see details`);
+    else if (ok > 0) toast(`${ok} admitted, ${err} failed — see table for details`, { icon:'⚠️', duration:6000 });
+    else toast.error(`All ${err} rows failed — check errors below`);
   };
 
   type RowResult = { row:number; name:string; admNo:string; status:'success'|'error'; message:string; };
 
   const successCount = results.filter(r => r.status === 'success').length;
   const errorCount   = results.filter(r => r.status === 'error').length;
-  const isDone       = results.length === rows.length && rows.length > 0;
+  const isDone       = !importing && results.length > 0 && (results.length === rows.length || abortRef.current);
+
+  // Estimated time remaining
+  const etaSec = importing && currentRow > 0
+    ? Math.round(((rows.length - currentRow) * SPEEDS[speedIdx].ms) / 1000)
+    : 0;
 
   // ─────────────────────────────────────────────────────────────────
   // Render
@@ -424,7 +504,7 @@ export default function BulkUploadPage() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5">
                             <span className="text-sm font-semibold text-slate-700">{f.label}</span>
-                            {f.required && <Lock className="w-3 h-3 text-primary-500" />}
+                            {f.required && <Lock className="w-3 h-3 text-primary-500" title="Required"/>}
                           </div>
                           {f.hint && <p className="text-xs text-slate-400 mt-0.5 leading-tight">{f.hint}</p>}
                           <p className="text-xs text-primary-500 mt-1 font-mono">e.g. {f.example}</p>
@@ -533,6 +613,32 @@ export default function BulkUploadPage() {
       {/* ── STEP 4: Preview + Import ── */}
       {step === 4 && (
         <div className="space-y-5">
+
+          {/* Speed selector — shown before import starts */}
+          {!importing && results.length === 0 && (
+            <div className="card p-4 space-y-3">
+              <div className="flex items-center gap-2 mb-1">
+                <Info className="w-4 h-4 text-blue-600"/>
+                <p className="text-sm font-semibold text-slate-700">Import Speed</p>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                {SPEEDS.map((s, i) => (
+                  <label key={i} className={`flex flex-col gap-1 p-3 rounded-xl border-2 cursor-pointer transition-all ${speedIdx===i?'border-primary-400 bg-primary-50':'border-slate-200 hover:border-slate-300'}`}>
+                    <input type="radio" name="speed" checked={speedIdx===i} onChange={()=>setSpeedIdx(i)} className="hidden"/>
+                    <span className="text-sm font-semibold text-slate-700">{s.label}</span>
+                    <span className="text-xs text-slate-400">{s.desc}</span>
+                  </label>
+                ))}
+              </div>
+              <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5"/>
+                <p className="text-xs text-amber-700">
+                  <span className="font-semibold">Recommended: Slow (safe)</span> for 20+ students. The backend rate-limiter allows ~100 requests per 15 minutes. Faster speeds risk hitting this limit and triggering "Too many requests" errors. The importer will auto-retry on rate limits, but slower is more reliable.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Summary bar */}
           <div className="card p-4 flex flex-wrap items-center gap-4">
             <div className="flex items-center gap-2">
@@ -544,17 +650,29 @@ export default function BulkUploadPage() {
                 <p className="text-xs text-slate-400">{activeFields.length} columns detected</p>
               </div>
             </div>
+
+            {/* Controls */}
             {isDone ? (
               <div className="flex gap-3 ml-auto flex-wrap">
                 <span className="badge badge-green">{successCount} admitted</span>
                 {errorCount > 0 && <span className="badge badge-red">{errorCount} failed</span>}
               </div>
             ) : importing ? (
-              <div className="flex items-center gap-3 ml-auto">
-                <div className="w-40 bg-slate-100 rounded-full h-2">
+              <div className="flex items-center gap-3 ml-auto flex-wrap">
+                {rateLimited && <span className="badge badge-red animate-pulse">⏳ Rate limited — retrying…</span>}
+                <div className="w-36 bg-slate-100 rounded-full h-2">
                   <div className="h-2 rounded-full bg-primary-gradient transition-all" style={{width:`${progress}%`}}/>
                 </div>
                 <span className="text-sm font-semibold text-primary-700">{progress}%</span>
+                <button
+                  onClick={() => { pauseRef.current = !pauseRef.current; setPaused(p=>!p); }}
+                  className="btn-secondary text-xs py-1.5"
+                >
+                  {paused ? '▶ Resume' : '⏸ Pause'}
+                </button>
+                <button onClick={stopImport} className="btn-secondary text-xs py-1.5 border-red-200 text-red-600 hover:bg-red-50">
+                  ⛔ Stop
+                </button>
               </div>
             ) : (
               <div className="ml-auto flex gap-3">
@@ -570,15 +688,19 @@ export default function BulkUploadPage() {
           {importing && (
             <div className="card p-4 space-y-2">
               <div className="flex justify-between text-sm">
-                <span className="font-medium text-slate-700">Importing students…</span>
+                <span className="font-medium text-slate-700">
+                  {paused ? '⏸ Paused' : rateLimited ? '⏳ Waiting for rate limit…' : `Importing… row ${currentRow} of ${rows.length}`}
+                </span>
                 <span className="text-primary-600 font-bold">{results.length} / {rows.length}</span>
               </div>
               <div className="progress-bar">
-                <div className="progress-fill" style={{width:`${progress}%`}}/>
+                <div className={`progress-fill transition-all ${rateLimited?'opacity-50':''}`} style={{width:`${progress}%`}}/>
               </div>
-              <div className="flex gap-4 text-xs text-slate-500">
+              <div className="flex gap-4 text-xs text-slate-500 flex-wrap">
                 <span className="text-green-600 font-semibold">✓ {successCount} admitted</span>
                 {errorCount > 0 && <span className="text-red-500 font-semibold">✗ {errorCount} failed</span>}
+                {etaSec > 0 && !paused && !rateLimited && <span className="text-slate-400">~{etaSec}s remaining</span>}
+                {paused && <span className="text-amber-600 font-semibold">Paused — click Resume to continue</span>}
               </div>
             </div>
           )}
@@ -589,10 +711,21 @@ export default function BulkUploadPage() {
               <div className="flex items-center gap-2 mb-2">
                 {errorCount === 0 ? <CheckCircle2 className="w-5 h-5 text-green-600"/> : <AlertCircle className="w-5 h-5 text-amber-600"/>}
                 <p className="font-bold text-slate-800">
-                  {errorCount === 0 ? `All ${successCount} students admitted successfully!` : `Import complete — ${successCount} admitted, ${errorCount} failed`}
+                  {errorCount === 0
+                    ? `All ${successCount} students admitted successfully!`
+                    : `Import complete — ${successCount} admitted, ${errorCount} failed`}
                 </p>
               </div>
-              {errorCount > 0 && <p className="text-xs text-amber-700">Review failed rows below. Fix the errors and re-upload only the failed rows.</p>}
+              {errorCount > 0 && (
+                <div className="text-xs text-amber-700 space-y-1">
+                  <p>Failed rows are shown in red below. Common causes:</p>
+                  <ul className="list-disc list-inside ml-1 space-y-0.5">
+                    <li><strong>Admission number already exists</strong> — student is already in system</li>
+                    <li><strong>Rate limited</strong> — try again with "Slow (safe)" speed selected</li>
+                    <li><strong>API route not found</strong> — backend may be restarting, wait 30s and retry</li>
+                  </ul>
+                </div>
+              )}
             </div>
           )}
 
@@ -664,7 +797,7 @@ export default function BulkUploadPage() {
                 <ChevronLeft className="w-4 h-4"/>Re-upload
               </button>
               <button onClick={runImport} className="btn-primary py-3 px-8 text-base">
-                <Upload className="w-5 h-5"/>Import All {rows.length} Students
+                <Upload className="w-5 h-5"/>Import All {rows.length} Students · {SPEEDS[speedIdx].label}
               </button>
             </div>
           )}

@@ -355,9 +355,8 @@ export default function BulkUploadPage() {
       // Date of birth (use the exact field name expected by backend)
       if (row.dob) body.dateOfBirth = row.dob;
 
-      // Class section ID – use sectionId if available, otherwise maybe classId? Backend expects classSectionId
+      // Class section ID – use sectionId if available
       if (sectionId) body.classSectionId = sectionId;
-      // else if (classId) body.classId = classId;   // fallback if backend also accepts classId alone
 
       // Parent fields – all at root level
       if (row.parentPhone) body.parentPhone = row.parentPhone;
@@ -369,7 +368,7 @@ export default function BulkUploadPage() {
         body.parentName = father + (father && mother ? ' & ' : '') + mother;
       }
 
-      // Other optional fields (keep as before, but ensure field names match backend)
+      // Other optional fields
       if (row.gender) body.gender = row.gender;
       if (row.phone) body.phone = row.phone;
       if (row.address) body.address = row.address;
@@ -384,7 +383,7 @@ export default function BulkUploadPage() {
       if (row.parentOccupation) body.parentOccupation = row.parentOccupation;
       if (row.emergencyContact) body.emergencyContact = row.emergencyContact;
 
-      // Optional: if the backend expects motherName / fatherName separately, add them
+      // Optional separate parent names
       if (row.fatherName) body.fatherName = row.fatherName;
       if (row.motherName) body.motherName = row.motherName;
 
@@ -405,8 +404,15 @@ export default function BulkUploadPage() {
         continue;
       }
       if (!body.parentName) {
-        // If the backend requires parentName, we need to send at least something
+        // Fallback: if no father/mother name, set a placeholder
         body.parentName = row.fatherName || row.motherName || 'Not provided';
+      }
+      // 🆕 Check if classSectionId is present (backend requires it)
+      if (!body.classSectionId) {
+        res.push({ row:i+1, name:row.name, admNo:row.admissionNumber, status:'error', message:'Missing or invalid Class/Section – check that class name and section exist in the system' });
+        setProgress(Math.round(((i+1)/rows.length)*100));
+        setResults([...res]);
+        continue;
       }
 
       try {
@@ -584,22 +590,21 @@ export default function BulkUploadPage() {
                         {f.label}{f.required?' *':''}
                       </th>
                     ))}
-                  </tr>
-                </thead>
+                  </thead>
                 <tbody>
                   <tr className="bg-blue-50">
                     {activeFields.map(f => (
-                      <td key={f.key} className="px-3 py-2 text-blue-600 italic whitespace-nowrap">{f.example}</td>
+                      <td key={f.key} className="px-3 py-2 text-blue-600 italic whitespace-nowrap">{f.example}蹲</td>
                     ))}
                   </tr>
                   <tr className="bg-slate-50">
                     {activeFields.map(f => (
-                      <td key={f.key} className="px-3 py-1.5 text-slate-400 text-xs whitespace-nowrap">{f.hint}</td>
+                      <td key={f.key} className="px-3 py-1.5 text-slate-400 text-xs whitespace-nowrap">{f.hint}蹲</td>
                     ))}
                   </tr>
                   <tr>
                     {activeFields.map(f => (
-                      <td key={f.key} className="px-3 py-2 text-slate-300 italic">← your data here</td>
+                      <td key={f.key} className="px-3 py-2 text-slate-300 italic">← your data here蹲</td>
                     ))}
                   </tr>
                 </tbody>

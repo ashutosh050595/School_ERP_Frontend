@@ -330,6 +330,11 @@ export default function BulkUploadPage() {
       setCurrentRow(i + 1);
       const row = rows[i];
 
+      // Auto‑uppercase enums
+      if (row.gender) row.gender = row.gender.toUpperCase();
+      if (row.category) row.category = row.category.toUpperCase();
+      if (row.bloodGroup) row.bloodGroup = row.bloodGroup.toUpperCase();
+
       // Resolve class/section IDs
       let classId = '', sectionId = '';
       if (row.className) {
@@ -337,47 +342,71 @@ export default function BulkUploadPage() {
         if (classId && row.sectionName) {
           const sections = await getSections(classId);
           const sec = sections.find((s:any) => s.section?.toLowerCase() === row.sectionName.toLowerCase().trim());
-          if (sec) sectionId = sec.id;
+          if (sec) sectionId = sec.id;   // section.id is likely the classSectionId
         }
       }
 
-      // Build API body — strip all undefined/empty values
-      const parent: any = {};
-      if (row.fatherName)       parent.fatherName       = row.fatherName;
-      if (row.motherName)       parent.motherName       = row.motherName;
-      if (row.parentPhone)      parent.primaryPhone     = row.parentPhone;
-      if (row.parentEmail)      parent.email            = row.parentEmail;
-      if (row.parentOccupation) parent.occupation       = row.parentOccupation;
-      if (row.emergencyContact) parent.emergencyContact = row.emergencyContact;
+      // Build the flat payload with the required field names
+      const body: any = {
+        name: row.name,
+        admissionNumber: row.admissionNumber,
+      };
 
-      const body: any = { name: row.name, admissionNumber: row.admissionNumber };
-      if (row.dob)            body.dob            = row.dob;
-      if (row.gender)         body.gender         = row.gender;
-      if (row.phone)          body.phone          = row.phone;
-      if (row.address)        body.address        = row.address;
-      if (classId)            body.classId        = classId;
-      if (sectionId)          body.sectionId      = sectionId;
-      if (row.religion)       body.religion       = row.religion;
-      if (row.category)       body.category       = row.category;
-      if (row.bloodGroup)     body.bloodGroup     = row.bloodGroup;
-      if (row.rollNumber)     body.rollNumber     = row.rollNumber;
-      if (row.nationality)    body.nationality    = row.nationality;
-      if (row.aadharNumber)   body.aadharNumber   = row.aadharNumber;
+      // Date of birth (use the exact field name expected by backend)
+      if (row.dob) body.dateOfBirth = row.dob;
+
+      // Class section ID – use sectionId if available, otherwise maybe classId? Backend expects classSectionId
+      if (sectionId) body.classSectionId = sectionId;
+      // else if (classId) body.classId = classId;   // fallback if backend also accepts classId alone
+
+      // Parent fields – all at root level
+      if (row.parentPhone) body.parentPhone = row.parentPhone;
+
+      // Combine father and mother names into a single parentName
+      const father = row.fatherName || '';
+      const mother = row.motherName || '';
+      if (father || mother) {
+        body.parentName = father + (father && mother ? ' & ' : '') + mother;
+      }
+
+      // Other optional fields (keep as before, but ensure field names match backend)
+      if (row.gender) body.gender = row.gender;
+      if (row.phone) body.phone = row.phone;
+      if (row.address) body.address = row.address;
+      if (row.religion) body.religion = row.religion;
+      if (row.category) body.category = row.category;
+      if (row.bloodGroup) body.bloodGroup = row.bloodGroup;
+      if (row.rollNumber) body.rollNumber = row.rollNumber;
+      if (row.nationality) body.nationality = row.nationality;
+      if (row.aadharNumber) body.aadharNumber = row.aadharNumber;
       if (row.previousSchool) body.previousSchool = row.previousSchool;
-      if (Object.keys(parent).length > 0) body.parent = parent;
+      if (row.parentEmail) body.parentEmail = row.parentEmail;
+      if (row.parentOccupation) body.parentOccupation = row.parentOccupation;
+      if (row.emergencyContact) body.emergencyContact = row.emergencyContact;
 
-      // Client-side validation
+      // Optional: if the backend expects motherName / fatherName separately, add them
+      if (row.fatherName) body.fatherName = row.fatherName;
+      if (row.motherName) body.motherName = row.motherName;
+
+      // Log the payload for debugging
+      console.log(`Row ${i+1} payload:`, body);
+
+      // Client-side validation (required fields)
       if (!body.name || !body.admissionNumber) {
         res.push({ row:i+1, name:row.name||'—', admNo:row.admissionNumber||'—', status:'error', message:'Missing Name or Admission Number' });
         setProgress(Math.round(((i+1)/rows.length)*100));
         setResults([...res]);
         continue;
       }
-      if (!body.parent?.primaryPhone) {
+      if (!body.parentPhone) {
         res.push({ row:i+1, name:row.name, admNo:row.admissionNumber, status:'error', message:'Missing Parent Phone (required)' });
         setProgress(Math.round(((i+1)/rows.length)*100));
         setResults([...res]);
         continue;
+      }
+      if (!body.parentName) {
+        // If the backend requires parentName, we need to send at least something
+        body.parentName = row.fatherName || row.motherName || 'Not provided';
       }
 
       try {
@@ -388,7 +417,6 @@ export default function BulkUploadPage() {
         const data   = err?.response?.data;
         let msg = '';
 
-        // Extract validation errors (common structure)
         if (data?.errors && Array.isArray(data.errors)) {
           msg = data.errors.map((e: any) => e.message || e).join(', ');
         } else if (data?.message) {
@@ -399,7 +427,6 @@ export default function BulkUploadPage() {
           msg = `Error ${status || 'unknown'}`;
         }
 
-        // Add friendly hints for common status codes
         if (status === 429) msg = 'Rate limited — try slower speed next time';
         if (status === 404) msg = 'API route not found — check backend';
         if (status === 409) msg = 'Admission number already exists';
@@ -557,8 +584,7 @@ export default function BulkUploadPage() {
                         {f.label}{f.required?' *':''}
                       </th>
                     ))}
-                  </tr>
-                </thead>
+                  </thead>
                 <tbody>
                   <tr className="bg-blue-50">
                     {activeFields.map(f=><td key={f.key} className="px-3 py-2 text-blue-600 italic whitespace-nowrap">{f.example}</td>)}

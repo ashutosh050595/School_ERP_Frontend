@@ -10,11 +10,11 @@
  *  Step 4 – Import             → submit rows, live progress
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
-  Settings2, Download, Upload, CheckCircle2, XCircle,
+  Settings2, Download, Upload, CheckCircle2,
   AlertCircle, ChevronRight, ChevronLeft, RefreshCw,
-  FileSpreadsheet, Lock, Eye, Trash2, Info,
+  FileSpreadsheet, Lock, Trash2, Info,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { studentsApi } from '@/lib/api';
@@ -30,7 +30,7 @@ const ALL_FIELDS: FieldDef[] = [
   { key:'parentPhone',       label:'Parent Phone',        required:true,  group:'Parent',  hint:'Primary contact number', example:'9876543210' },
 
   // ── Basic (optional)
-  { key:'dob',               label:'Date of Birth',       required:false, group:'Basic',   hint:'DD-MM-YYYY or YYYY-MM-DD', example:'2010-04-15' },
+  { key:'dob',               label:'Date of Birth',       required:false, group:'Basic',   hint:'YYYY-MM-DD', example:'2010-04-15' },
   { key:'gender',            label:'Gender',              required:false, group:'Basic',   hint:'MALE | FEMALE | OTHER', example:'MALE' },
   { key:'bloodGroup',        label:'Blood Group',         required:false, group:'Basic',   hint:'A+ A- B+ B- O+ O- AB+ AB-', example:'B+' },
   { key:'category',          label:'Category',            required:false, group:'Basic',   hint:'GENERAL | OBC | SC | ST | EWS', example:'GENERAL' },
@@ -386,10 +386,24 @@ export default function BulkUploadPage() {
       } catch(err: any) {
         const status = err?.response?.status;
         const data   = err?.response?.data;
-        let msg = data?.message || data?.error || data?.errors?.[0]?.message || `Error ${status||''}`;
+        let msg = '';
+
+        // Extract validation errors (common structure)
+        if (data?.errors && Array.isArray(data.errors)) {
+          msg = data.errors.map((e: any) => e.message || e).join(', ');
+        } else if (data?.message) {
+          msg = data.message;
+        } else if (data?.error) {
+          msg = data.error;
+        } else {
+          msg = `Error ${status || 'unknown'}`;
+        }
+
+        // Add friendly hints for common status codes
         if (status === 429) msg = 'Rate limited — try slower speed next time';
         if (status === 404) msg = 'API route not found — check backend';
         if (status === 409) msg = 'Admission number already exists';
+
         res.push({ row:i+1, name:body.name, admNo:body.admissionNumber, status:'error', message: msg });
       }
 
@@ -723,6 +737,7 @@ export default function BulkUploadPage() {
                     <li><strong>Admission number already exists</strong> — student is already in system</li>
                     <li><strong>Rate limited</strong> — try again with "Slow (safe)" speed selected</li>
                     <li><strong>API route not found</strong> — backend may be restarting, wait 30s and retry</li>
+                    <li><strong>Validation errors</strong> — check the error message column for details</li>
                   </ul>
                 </div>
               )}

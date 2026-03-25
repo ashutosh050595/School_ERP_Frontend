@@ -10,11 +10,11 @@
  *  Step 4 – Import             → submit rows, live progress
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
-  Settings2, Download, Upload, CheckCircle2, XCircle,
+  Settings2, Download, Upload, CheckCircle2,
   AlertCircle, ChevronRight, ChevronLeft, RefreshCw,
-  FileSpreadsheet, Lock, Eye, Trash2, Info,
+  FileSpreadsheet, Lock, Trash2, Info,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { studentsApi } from '@/lib/api';
@@ -23,14 +23,14 @@ import toast from 'react-hot-toast';
 // ─────────────────────────────────────────────────────────────────
 // Field catalogue — every student field the system knows about
 // ─────────────────────────────────────────────────────────────────
-export const ALL_FIELDS: FieldDef[] = [
+const ALL_FIELDS: FieldDef[] = [
   // ── Required (locked on)
   { key:'name',              label:'Student Name',        required:true,  group:'Basic',   hint:'Full legal name', example:'Aarav Kumar' },
   { key:'admissionNumber',   label:'Admission Number',    required:true,  group:'Basic',   hint:'Unique ID for the student', example:'2025001' },
   { key:'parentPhone',       label:'Parent Phone',        required:true,  group:'Parent',  hint:'Primary contact number', example:'9876543210' },
 
   // ── Basic (optional)
-  { key:'dob',               label:'Date of Birth',       required:false, group:'Basic',   hint:'DD-MM-YYYY or YYYY-MM-DD', example:'2010-04-15' },
+  { key:'dob',               label:'Date of Birth',       required:false, group:'Basic',   hint:'YYYY-MM-DD', example:'2010-04-15' },
   { key:'gender',            label:'Gender',              required:false, group:'Basic',   hint:'MALE | FEMALE | OTHER', example:'MALE' },
   { key:'bloodGroup',        label:'Blood Group',         required:false, group:'Basic',   hint:'A+ A- B+ B- O+ O- AB+ AB-', example:'B+' },
   { key:'category',          label:'Category',            required:false, group:'Basic',   hint:'GENERAL | OBC | SC | ST | EWS', example:'GENERAL' },
@@ -86,48 +86,20 @@ function colLetter(n: number): string {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Fuzzy class name normaliser
-// Handles: "Class VI", "class vi", "ClassVI", "Class 6", "VI", "6"
-// ─────────────────────────────────────────────────────────────────
-const ROMAN: Record<string,string> = {
-  i:'1',ii:'2',iii:'3',iv:'4',v:'5',vi:'6',vii:'7',viii:'8',
-  ix:'9',x:'10',xi:'11',xii:'12',
-};
-function normaliseClassName(s: string): string {
-  return s.toLowerCase()
-    .replace(/[^a-z0-9]/g, ' ')   // symbols → space
-    .trim()
-    .split(/\s+/)
-    .map(w => ROMAN[w] ?? w)       // roman → arabic
-    .filter(w => w !== 'class' && w !== 'std' && w !== 'grade' && w !== '-')
-    .join(' ')
-    .trim();
-}
-
-// ─────────────────────────────────────────────────────────────────
 // Main page
 // ─────────────────────────────────────────────────────────────────
 export default function BulkUploadPage() {
   const [step, setStep]           = useState<1|2|3|4>(1);
   const [selectedKeys, setSelectedKeys] = useState<string[]>(loadSavedColumns);
   const [classes, setClasses]     = useState<any[]>([]);
-  const [classesLoading, setClassesLoading] = useState(true);
   const [rows, setRows]           = useState<Record<string,string>[]>([]);
   const [results, setResults]     = useState<RowResult[]>([]);
-  // Pre-validation: class resolution map  key=rowIndex, value={classId,sectionId,resolvedName,warn}
-  const [classResolution, setClassResolution] = useState<Record<number,{classId:string;sectionId:string;resolvedName:string;warn:string}>>({});
-  const [resolving, setResolving] = useState(false);
   const [importing, setImporting] = useState(false);
   const [progress, setProgress]   = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // Load ALL classes (paginated)
   useEffect(() => {
-    setClassesLoading(true);
-    studentsApi.getClasses()
-      .then(r => setClasses(r.data.data || []))
-      .catch(() => {})
-      .finally(() => setClassesLoading(false));
+    studentsApi.getClasses().then(r => setClasses(r.data.data || [])).catch(() => {});
   }, []);
 
   const activeFields = ALL_FIELDS.filter(f => selectedKeys.includes(f.key));
@@ -276,84 +248,6 @@ export default function BulkUploadPage() {
     e.target.value = '';
   };
 
-  // ── Pre-validate class/section resolution for all rows
-  const resolveClasses = useCallback(async (rowsToResolve: Record<string,string>[]) => {
-    if (!rowsToResolve.some(r => r.className)) return; // nothing to resolve
-    setResolving(true);
-
-    // Fresh class load to make sure we have latest
-    let freshClasses = classes;
-    if (freshClasses.length === 0) {
-      try { const r = await studentsApi.getClasses(); freshClasses = r.data.data || []; setClasses(freshClasses); }
-      catch {}
-    }
-
-    // Build lookup maps: normalised name → id, and raw name → id
-    const classById: Record<string,any> = {};
-    const classNormMap: Record<string,string> = {};      // normalised → classId
-    const classRawMap:  Record<string,string> = {};      // lowercase  → classId
-    freshClasses.forEach(c => {
-      classById[c.id] = c;
-      classRawMap[c.name.toLowerCase().trim()] = c.id;
-      classNormMap[normaliseClassName(c.name)]  = c.id;
-    });
-
-    // Cache sections per classId
-    const sectionCache: Record<string, any[]> = {};
-    const getSections = async (classId: string) => {
-      if (sectionCache[classId]) return sectionCache[classId];
-      try { const r = await studentsApi.getSections(classId); sectionCache[classId] = r.data.data || []; }
-      catch { sectionCache[classId] = []; }
-      return sectionCache[classId];
-    };
-
-    const resolution: Record<number,{classId:string;sectionId:string;resolvedName:string;warn:string}> = {};
-
-    for (let i = 0; i < rowsToResolve.length; i++) {
-      const row = rowsToResolve[i];
-      if (!row.className) { resolution[i] = {classId:'',sectionId:'',resolvedName:'',warn:''}; continue; }
-
-      const rawKey  = row.className.toLowerCase().trim();
-      const normKey = normaliseClassName(row.className);
-
-      // Try exact → raw lowercase → normalised
-      const classId = classRawMap[rawKey] || classNormMap[normKey] || '';
-      const resolvedClass = classId ? classById[classId] : null;
-      const resolvedName  = resolvedClass?.name || '';
-
-      let sectionId = '';
-      let sectionWarn = '';
-      if (classId && row.sectionName) {
-        const sections = await getSections(classId);
-        const rawSec  = row.sectionName.trim().toLowerCase();
-        const sec = sections.find((s:any) =>
-          s.section?.toLowerCase() === rawSec ||
-          s.section?.toLowerCase() === rawSec.replace('section','').trim()
-        );
-        if (sec) {
-          sectionId = sec.id;
-        } else {
-          sectionWarn = `Section "${row.sectionName}" not found in ${resolvedName} — will import without section`;
-        }
-      }
-
-      const warn = !classId
-        ? `Class "${row.className}" not found — will import without class assignment`
-        : sectionWarn;
-
-      resolution[i] = { classId, sectionId, resolvedName, warn };
-    }
-
-    setClassResolution(resolution);
-    setResolving(false);
-    return resolution;
-  }, [classes]);
-
-  // Run resolution whenever rows change in step 4
-  useEffect(() => {
-    if (step === 4 && rows.length > 0) resolveClasses(rows);
-  }, [step, rows]); // eslint-disable-line
-
   // ── Speed presets (ms between requests)
   const SPEEDS = [
     { label:'Slow (safe)',   ms:1200, desc:'1.2s gap — recommended for 50+ students' },
@@ -404,11 +298,18 @@ export default function BulkUploadPage() {
     pauseRef.current = false;
     const res: RowResult[] = [];
 
-    // Build class resolution — use pre-validated map, or re-resolve if empty
-    let resolution = classResolution;
-    if (Object.keys(resolution).length === 0) {
-      resolution = await resolveClasses(rows) || {};
-    }
+    // Build class name → id map
+    const classMap: Record<string, string> = {};
+    classes.forEach(c => { classMap[c.name.toLowerCase().trim()] = c.id; });
+
+    // Fetch sections lazily, cache by classId
+    const sectionCache: Record<string, any[]> = {};
+    const getSections = async (classId: string) => {
+      if (sectionCache[classId]) return sectionCache[classId];
+      try { const r = await studentsApi.getSections(classId); sectionCache[classId] = r.data.data || []; }
+      catch { sectionCache[classId] = []; }
+      return sectionCache[classId];
+    };
 
     const delay = SPEEDS[speedIdx].ms;
 
@@ -429,45 +330,86 @@ export default function BulkUploadPage() {
       setCurrentRow(i + 1);
       const row = rows[i];
 
-      // Use pre-resolved class/section (non-blocking — warn only, never fail)
-      const resolved  = resolution[i] || { classId:'', sectionId:'', warn:'' };
-      const classId   = resolved.classId;
-      const sectionId = resolved.sectionId;
+      // Auto‑uppercase enums
+      if (row.gender) row.gender = row.gender.toUpperCase();
+      if (row.category) row.category = row.category.toUpperCase();
+      if (row.bloodGroup) row.bloodGroup = row.bloodGroup.toUpperCase();
 
-      // Build API body — strip all undefined/empty values
-      const parent: any = {};
-      if (row.fatherName)       parent.fatherName       = row.fatherName;
-      if (row.motherName)       parent.motherName       = row.motherName;
-      if (row.parentPhone)      parent.primaryPhone     = row.parentPhone;
-      if (row.parentEmail)      parent.email            = row.parentEmail;
-      if (row.parentOccupation) parent.occupation       = row.parentOccupation;
-      if (row.emergencyContact) parent.emergencyContact = row.emergencyContact;
+      // Resolve class/section IDs
+      let classId = '', sectionId = '';
+      if (row.className) {
+        classId = classMap[row.className.toLowerCase().trim()] || '';
+        if (classId && row.sectionName) {
+          const sections = await getSections(classId);
+          const sec = sections.find((s:any) => s.section?.toLowerCase() === row.sectionName.toLowerCase().trim());
+          if (sec) sectionId = sec.id;   // section.id is likely the classSectionId
+        }
+      }
 
-      const body: any = { name: row.name, admissionNumber: row.admissionNumber };
-      if (row.dob)            body.dob            = row.dob;
-      if (row.gender)         body.gender         = row.gender;
-      if (row.phone)          body.phone          = row.phone;
-      if (row.address)        body.address        = row.address;
-      if (classId)            body.classId        = classId;
-      if (sectionId)          body.sectionId      = sectionId;
-      if (row.religion)       body.religion       = row.religion;
-      if (row.category)       body.category       = row.category;
-      if (row.bloodGroup)     body.bloodGroup     = row.bloodGroup;
-      if (row.rollNumber)     body.rollNumber     = row.rollNumber;
-      if (row.nationality)    body.nationality    = row.nationality;
-      if (row.aadharNumber)   body.aadharNumber   = row.aadharNumber;
+      // Build the flat payload with the required field names
+      const body: any = {
+        name: row.name,
+        admissionNumber: row.admissionNumber,
+      };
+
+      // Date of birth (use the exact field name expected by backend)
+      if (row.dob) body.dateOfBirth = row.dob;
+
+      // Class section ID – use sectionId if available
+      if (sectionId) body.classSectionId = sectionId;
+
+      // Parent fields – all at root level
+      if (row.parentPhone) body.parentPhone = row.parentPhone;
+
+      // Combine father and mother names into a single parentName
+      const father = row.fatherName || '';
+      const mother = row.motherName || '';
+      if (father || mother) {
+        body.parentName = father + (father && mother ? ' & ' : '') + mother;
+      }
+
+      // Other optional fields
+      if (row.gender) body.gender = row.gender;
+      if (row.phone) body.phone = row.phone;
+      if (row.address) body.address = row.address;
+      if (row.religion) body.religion = row.religion;
+      if (row.category) body.category = row.category;
+      if (row.bloodGroup) body.bloodGroup = row.bloodGroup;
+      if (row.rollNumber) body.rollNumber = row.rollNumber;
+      if (row.nationality) body.nationality = row.nationality;
+      if (row.aadharNumber) body.aadharNumber = row.aadharNumber;
       if (row.previousSchool) body.previousSchool = row.previousSchool;
-      if (Object.keys(parent).length > 0) body.parent = parent;
+      if (row.parentEmail) body.parentEmail = row.parentEmail;
+      if (row.parentOccupation) body.parentOccupation = row.parentOccupation;
+      if (row.emergencyContact) body.emergencyContact = row.emergencyContact;
 
-      // Client-side validation
+      // Optional separate parent names
+      if (row.fatherName) body.fatherName = row.fatherName;
+      if (row.motherName) body.motherName = row.motherName;
+
+      // Log the payload for debugging
+      console.log(`Row ${i+1} payload:`, body);
+
+      // Client-side validation (required fields)
       if (!body.name || !body.admissionNumber) {
         res.push({ row:i+1, name:row.name||'—', admNo:row.admissionNumber||'—', status:'error', message:'Missing Name or Admission Number' });
         setProgress(Math.round(((i+1)/rows.length)*100));
         setResults([...res]);
         continue;
       }
-      if (!body.parent?.primaryPhone) {
+      if (!body.parentPhone) {
         res.push({ row:i+1, name:row.name, admNo:row.admissionNumber, status:'error', message:'Missing Parent Phone (required)' });
+        setProgress(Math.round(((i+1)/rows.length)*100));
+        setResults([...res]);
+        continue;
+      }
+      if (!body.parentName) {
+        // Fallback: if no father/mother name, set a placeholder
+        body.parentName = row.fatherName || row.motherName || 'Not provided';
+      }
+      // Check if classSectionId is present (backend requires it)
+      if (!body.classSectionId) {
+        res.push({ row:i+1, name:row.name, admNo:row.admissionNumber, status:'error', message:'Missing or invalid Class/Section – check that class name and section exist in the system' });
         setProgress(Math.round(((i+1)/rows.length)*100));
         setResults([...res]);
         continue;
@@ -475,15 +417,26 @@ export default function BulkUploadPage() {
 
       try {
         await withRetry(() => studentsApi.create(body));
-        const warn = resolved.warn ? ` · ⚠ ${resolved.warn}` : '';
-        res.push({ row:i+1, name:body.name, admNo:body.admissionNumber, status:'success', message:`Admitted${warn}` });
+        res.push({ row:i+1, name:body.name, admNo:body.admissionNumber, status:'success', message:'Admitted' });
       } catch(err: any) {
         const status = err?.response?.status;
         const data   = err?.response?.data;
-        let msg = data?.message || data?.error || data?.errors?.[0]?.message || `Error ${status||''}`;
+        let msg = '';
+
+        if (data?.errors && Array.isArray(data.errors)) {
+          msg = data.errors.map((e: any) => e.message || e).join(', ');
+        } else if (data?.message) {
+          msg = data.message;
+        } else if (data?.error) {
+          msg = data.error;
+        } else {
+          msg = `Error ${status || 'unknown'}`;
+        }
+
         if (status === 429) msg = 'Rate limited — try slower speed next time';
         if (status === 404) msg = 'API route not found — check backend';
         if (status === 409) msg = 'Admission number already exists';
+
         res.push({ row:i+1, name:body.name, admNo:body.admissionNumber, status:'error', message: msg });
       }
 
@@ -598,7 +551,7 @@ export default function BulkUploadPage() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5">
                             <span className="text-sm font-semibold text-slate-700">{f.label}</span>
-                            {f.required && <Lock className="w-3 h-3 text-primary-500" title="Required"/>}
+                            {f.required && <Lock className="w-3 h-3 text-primary-500" aria-label="Required"/>}
                           </div>
                           {f.hint && <p className="text-xs text-slate-400 mt-0.5 leading-tight">{f.hint}</p>}
                           <p className="text-xs text-primary-500 mt-1 font-mono">e.g. {f.example}</p>
@@ -632,25 +585,30 @@ export default function BulkUploadPage() {
                   <tr>
                     {activeFields.map(f => (
                       <th key={f.key} className={`px-3 py-2.5 text-left text-white font-bold whitespace-nowrap ${
-                        f.required ? 'bg-primary-800' : f.group==='Basic'?'bg-slate-700':f.group==='Class'?'bg-emerald-800':'bg-purple-800'
+                        f.required ? 'bg-primary-800' : f.group==='Basic' ? 'bg-slate-700' : f.group==='Class' ? 'bg-emerald-800' : 'bg-purple-800'
                       }`}>
-                        {f.label}{f.required?' *':''}
+                        {f.label}{f.required ? ' *' : ''}
                       </th>
                     ))}
-                  </tr>
-                </thead>
+                  </thead>
                 <tbody>
                   <tr className="bg-blue-50">
-                    {activeFields.map(f=><td key={f.key} className="px-3 py-2 text-blue-600 italic whitespace-nowrap">{f.example}</td>)}
+                    {activeFields.map(f => (
+                      <td key={f.key} className="px-3 py-2 text-blue-600 italic whitespace-nowrap">{f.example}蹲蹲
+                    ))}
                   </tr>
                   <tr className="bg-slate-50">
-                    {activeFields.map(f=><td key={f.key} className="px-3 py-1.5 text-slate-400 text-xs whitespace-nowrap">{f.hint}</td>)}
+                    {activeFields.map(f => (
+                      <td key={f.key} className="px-3 py-1.5 text-slate-400 text-xs whitespace-nowrap">{f.hint}蹲蹲
+                    ))}
                   </tr>
                   <tr>
-                    {activeFields.map(f=><td key={f.key} className="px-3 py-2 text-slate-300 italic">← your data here</td>)}
+                    {activeFields.map(f => (
+                      <td key={f.key} className="px-3 py-2 text-slate-300 italic">← your data here蹲蹲
+                    ))}
                   </tr>
                 </tbody>
-              </table>
+               </table>
             </div>
             <div className="flex items-start gap-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-700">
               <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5"/>
@@ -817,70 +775,8 @@ export default function BulkUploadPage() {
                     <li><strong>Admission number already exists</strong> — student is already in system</li>
                     <li><strong>Rate limited</strong> — try again with "Slow (safe)" speed selected</li>
                     <li><strong>API route not found</strong> — backend may be restarting, wait 30s and retry</li>
+                    <li><strong>Validation errors</strong> — check the error message column for details</li>
                   </ul>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Class resolution panel — shown before import starts */}
-          {!importing && results.length === 0 && rows.some(r => r.className) && (
-            <div className="card overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
-                <p className="font-semibold text-slate-700 text-sm">Class & Section Resolution</p>
-                {resolving
-                  ? <span className="text-xs text-slate-400 flex items-center gap-1"><div className="w-3 h-3 border border-primary-600 border-t-transparent rounded-full animate-spin"/>Resolving…</span>
-                  : (() => {
-                      const warns = Object.values(classResolution).filter(r => r.warn).length;
-                      return warns > 0
-                        ? <span className="badge badge-red">{warns} unresolved</span>
-                        : <span className="badge badge-green">All resolved ✓</span>;
-                    })()
-                }
-              </div>
-              {!resolving && (
-                <div className="divide-y divide-slate-50 max-h-48 overflow-y-auto">
-                  {rows.map((row, i) => {
-                    if (!row.className) return null;
-                    const res = classResolution[i];
-                    if (!res) return null;
-                    return (
-                      <div key={i} className={`flex items-center gap-3 px-4 py-2 text-sm ${res.warn ? 'bg-amber-50' : ''}`}>
-                        <span className="text-slate-400 text-xs w-6 flex-shrink-0">{i+1}</span>
-                        <span className="text-slate-500 w-28 flex-shrink-0 truncate">{row.admissionNumber}</span>
-                        {/* What was in Excel */}
-                        <span className="font-mono text-xs text-slate-600 flex-shrink-0">
-                          "{row.className}{row.sectionName ? `-${row.sectionName}` : ''}"
-                        </span>
-                        <span className="text-slate-300 flex-shrink-0">→</span>
-                        {res.warn ? (
-                          <span className="text-amber-600 text-xs flex items-center gap-1 min-w-0">
-                            <AlertCircle className="w-3 h-3 flex-shrink-0"/>
-                            <span className="truncate">{res.warn}</span>
-                          </span>
-                        ) : (
-                          <span className="text-green-600 text-xs flex items-center gap-1 flex-shrink-0">
-                            <CheckCircle2 className="w-3 h-3"/>
-                            {res.resolvedName}{res.sectionId ? ` · Sec OK` : row.sectionName ? ' · No sec' : ''}
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              {!resolving && Object.values(classResolution).some(r => r.warn) && (
-                <div className="px-4 py-3 border-t border-amber-100 bg-amber-50">
-                  <p className="text-xs text-amber-700">
-                    <span className="font-semibold">Rows with ⚠ warnings will still be imported</span> — students will be admitted without a class/section assignment. You can assign them manually afterwards.
-                    The class names in your Excel must match <em>exactly</em> as they appear in <strong>Students → Classes & Sections</strong>.
-                  </p>
-                  <button
-                    onClick={() => resolveClasses(rows)}
-                    className="btn-ghost text-xs mt-2 text-amber-700 hover:bg-amber-100"
-                  >
-                    <RefreshCw className="w-3 h-3"/>Re-check
-                  </button>
                 </div>
               )}
             </div>

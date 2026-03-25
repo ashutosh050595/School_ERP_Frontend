@@ -23,7 +23,7 @@ import toast from 'react-hot-toast';
 // ─────────────────────────────────────────────────────────────────
 // Field catalogue — every student field the system knows about
 // ─────────────────────────────────────────────────────────────────
-export const ALL_FIELDS: FieldDef[] = [
+const ALL_FIELDS: FieldDef[] = [
   // ── Required (locked on)
   { key:'name',              label:'Student Name',        required:true,  group:'Basic',   hint:'Full legal name', example:'Aarav Kumar' },
   { key:'admissionNumber',   label:'Admission Number',    required:true,  group:'Basic',   hint:'Unique ID for the student', example:'2025001' },

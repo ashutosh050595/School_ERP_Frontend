@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { Globe, User, Users, CheckCircle } from 'lucide-react';
+import { Globe, User, Users, CheckCircle, Upload } from 'lucide-react';
 import { portalApi, studentsApi } from '@/lib/api';
 import { Tabs } from '@/components/ui';
 import toast from 'react-hot-toast';
@@ -11,6 +11,7 @@ export default function PortalsPage() {
     <div className="space-y-5 max-w-3xl">
       <div className="page-header">
         <div><h1 className="page-title">Student & Parent Portals</h1><p className="page-sub">Create portal login access for students and parents</p></div>
+        <a href="/dashboard/portals/bulk" className="btn-primary"><Upload className="w-4 h-4"/>Bulk Create via Excel</a>
       </div>
       <div className="card p-4 flex items-start gap-3 bg-blue-50 border-blue-200">
         <Globe className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5"/>

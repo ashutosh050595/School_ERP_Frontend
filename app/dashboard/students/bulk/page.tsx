@@ -816,6 +816,7 @@ export default function BulkUploadPage() {
                       <th key={f.key}>{f.label}</th>
                     ))}
                     {results.length > 0 && <th>Message</th>}
+                    </tr>
                   </thead>
                 <tbody>
                   {rows.map((row, i) => {

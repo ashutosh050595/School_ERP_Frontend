@@ -28,7 +28,8 @@ type FieldDef = {
   group: 'Basic'|'Class'|'Parent'; hint: string; example: string;
 };
 
-export const ALL_FIELDS: FieldDef[] = [
+// Remove `export` here – pages must not have named exports
+const ALL_FIELDS: FieldDef[] = [
   // ── Required (locked on)
   { key:'name',              label:'Student Name',        required:true,  group:'Basic',   hint:'Full legal name', example:'Aarav Kumar' },
   { key:'admissionNumber',   label:'Admission Number',    required:true,  group:'Basic',   hint:'Unique ID for the student', example:'2025001' },

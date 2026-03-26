@@ -28,7 +28,6 @@ type FieldDef = {
   group: 'Basic'|'Class'|'Parent'; hint: string; example: string;
 };
 
-// Remove `export` here – pages must not have named exports
 const ALL_FIELDS: FieldDef[] = [
   // ── Required (locked on)
   { key:'name',              label:'Student Name',        required:true,  group:'Basic',   hint:'Full legal name', example:'Aarav Kumar' },
@@ -561,7 +560,7 @@ export default function BulkUploadPage() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5">
                             <span className="text-sm font-semibold text-slate-700">{f.label}</span>
-                            {f.required && <Lock className="w-3 h-3 text-primary-500" title="Required"/>}
+                            {f.required && <Lock className="w-3 h-3 text-primary-500" aria-label="Required"/>}
                           </div>
                           {f.hint && <p className="text-xs text-slate-400 mt-0.5 leading-tight">{f.hint}</p>}
                           <p className="text-xs text-primary-500 mt-1 font-mono">e.g. {f.example}</p>

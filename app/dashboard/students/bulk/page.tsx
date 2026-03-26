@@ -397,37 +397,34 @@ export default function BulkUploadPage() {
       const resolved  = resolution[i] || { classId:'', sectionId:'', warn:'' };
       const classId   = resolved.classId;
       const sectionId = resolved.sectionId;
-      // Build API body — strip all undefined/empty values
-      const parent: any = {};
-      if (row.fatherName)       parent.fatherName       = row.fatherName;
-      if (row.motherName)       parent.motherName       = row.motherName;
-      if (row.parentPhone)      parent.primaryPhone     = row.parentPhone;
-      if (row.parentEmail)      parent.email            = row.parentEmail;
-      if (row.parentOccupation) parent.occupation       = row.parentOccupation;
-      if (row.emergencyContact) parent.emergencyContact = row.emergencyContact;
-      const body: any = { name: row.name, admissionNumber: row.admissionNumber };
-      if (row.dob)            body.dob            = row.dob;
-      if (row.gender)         body.gender         = row.gender;
-      if (row.phone)          body.phone          = row.phone;
-      if (row.address)        body.address        = row.address;
-      // Backend requires classSectionId (the section's UUID) — not classId/sectionId separately
-      // classSectionId = sectionId (the section record's primary key)
+
+      // Build API body — flattened, with renamed fields
+      const body: any = {
+        name: row.name,
+        admissionNumber: row.admissionNumber,
+        dateOfBirth: row.dob,
+        parentPhone: row.parentPhone,
+        parentName: row.fatherName || row.motherName || '',
+      };
+
+      if (row.gender)         body.gender = row.gender;
+      if (row.phone)          body.phone = row.phone;
+      if (row.address)        body.address = row.address;
+      if (row.religion)       body.religion = row.religion;
+      if (row.category)       body.category = row.category;
+      if (row.bloodGroup)     body.bloodGroup = row.bloodGroup;
+      if (row.rollNumber)     body.rollNumber = row.rollNumber;
+      if (row.nationality)    body.nationality = row.nationality;
+      if (row.aadharNumber)   body.aadharNumber = row.aadharNumber;
+      if (row.previousSchool) body.previousSchool = row.previousSchool;
+
       if (sectionId) body.classSectionId = sectionId;
       else if (classId && !row.sectionName) {
-        // Class specified but no section name given — try to auto-pick the only section
         const nestedSections: any[] = (classes.find((c:any) => c.id === classId)?.sections) || [];
         if (nestedSections.length === 1) {
           body.classSectionId = nestedSections[0].id;
         }
       }
-      if (row.religion)       body.religion       = row.religion;
-      if (row.category)       body.category       = row.category;
-      if (row.bloodGroup)     body.bloodGroup     = row.bloodGroup;
-      if (row.rollNumber)     body.rollNumber     = row.rollNumber;
-      if (row.nationality)    body.nationality    = row.nationality;
-      if (row.aadharNumber)   body.aadharNumber   = row.aadharNumber;
-      if (row.previousSchool) body.previousSchool = row.previousSchool;
-      if (Object.keys(parent).length > 0) body.parent = parent;
 
       // Client-side validation
       if (!body.name || !body.admissionNumber) {
@@ -436,12 +433,19 @@ export default function BulkUploadPage() {
         setResults([...res]);
         continue;
       }
-      if (!body.parent?.primaryPhone) {
+      if (!body.parentPhone) {
         res.push({ row:i+1, name:row.name, admNo:row.admissionNumber, status:'error', message:'Missing Parent Phone (required)' });
         setProgress(Math.round(((i+1)/rows.length)*100));
         setResults([...res]);
         continue;
       }
+      if (!body.parentName) {
+        res.push({ row:i+1, name:row.name, admNo:row.admissionNumber, status:'error', message:'Missing Parent Name (required – fill Father\'s Name)' });
+        setProgress(Math.round(((i+1)/rows.length)*100));
+        setResults([...res]);
+        continue;
+      }
+
       try {
         await withRetry(() => studentsApi.create(body));
         const warn = resolved.warn ? ` · ⚠ ${resolved.warn}` : '';

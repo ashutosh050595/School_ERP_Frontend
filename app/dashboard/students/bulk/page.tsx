@@ -599,8 +599,7 @@ export default function BulkUploadPage() {
                         {f.label}{f.required ? ' *' : ''}
                       </th>
                     ))}
-                  </tr>
-                </thead>
+                  </thead>
                 <tbody>
                   <tr className="bg-blue-50">
                     {activeFields.map(f => (
@@ -816,8 +815,7 @@ export default function BulkUploadPage() {
                       <th key={f.key}>{f.label}</th>
                     ))}
                     {results.length > 0 && <th>Message</th>}
-                  </tr>
-                </thead>
+                  </thead>
                 <tbody>
                   {rows.map((row, i) => {
                     const result = results[i];

@@ -599,6 +599,7 @@ export default function BulkUploadPage() {
                         {f.label}{f.required ? ' *' : ''}
                       </th>
                     ))}
+                    </tr>
                   </thead>
                 <tbody>
                   <tr className="bg-blue-50">

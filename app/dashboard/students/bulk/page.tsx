@@ -584,27 +584,43 @@ export default function BulkUploadPage() {
                 <thead>
                   <tr>
                     {activeFields.map(f => (
-                      <th key={f.key} className={`px-3 py-2.5 text-left text-white font-bold whitespace-nowrap ${
-                        f.required ? 'bg-primary-800' : f.group==='Basic' ? 'bg-slate-700' : f.group==='Class' ? 'bg-emerald-800' : 'bg-purple-800'
-                      }`}>
+                      <th
+                        key={f.key}
+                        className={`px-3 py-2.5 text-left text-white font-bold whitespace-nowrap ${
+                          f.required
+                            ? 'bg-primary-800'
+                            : f.group === 'Basic'
+                            ? 'bg-slate-700'
+                            : f.group === 'Class'
+                            ? 'bg-emerald-800'
+                            : 'bg-purple-800'
+                        }`}
+                      >
                         {f.label}{f.required ? ' *' : ''}
                       </th>
                     ))}
-                  </thead>
+                  </tr>
+                </thead>
                 <tbody>
                   <tr className="bg-blue-50">
                     {activeFields.map(f => (
-                      <td key={f.key} className="px-3 py-2 text-blue-600 italic whitespace-nowrap">{f.example}</td>
+                      <td key={f.key} className="px-3 py-2 text-blue-600 italic whitespace-nowrap">
+                        {f.example}
+                      </td>
                     ))}
                   </tr>
                   <tr className="bg-slate-50">
                     {activeFields.map(f => (
-                      <td key={f.key} className="px-3 py-1.5 text-slate-400 text-xs whitespace-nowrap">{f.hint}</td>
+                      <td key={f.key} className="px-3 py-1.5 text-slate-400 text-xs whitespace-nowrap">
+                        {f.hint}
+                      </td>
                     ))}
                   </tr>
                   <tr>
                     {activeFields.map(f => (
-                      <td key={f.key} className="px-3 py-2 text-slate-300 italic">← your data here</td>
+                      <td key={f.key} className="px-3 py-2 text-slate-300 italic">
+                        ← your data here
+                      </td>
                     ))}
                   </tr>
                 </tbody>

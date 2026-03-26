@@ -596,29 +596,30 @@ export default function BulkUploadPage() {
                         {f.label}{f.required ? ' *' : ''}
                       </th>
                     ))}
-                  </thead>
+                  </tr>
+                </thead>
                 <tbody>
                   <tr className="bg-blue-50">
                     {activeFields.map(f => (
                       <td key={f.key} className="px-3 py-2 text-blue-600 italic whitespace-nowrap">
                         {f.example}
-                      蹲
+                      </td>
                     ))}
-                   </tr>
+                  </tr>
                   <tr className="bg-slate-50">
                     {activeFields.map(f => (
                       <td key={f.key} className="px-3 py-1.5 text-slate-400 text-xs whitespace-nowrap">
                         {f.hint}
-                      蹲
+                      </td>
                     ))}
-                   </tr>
+                  </tr>
                   <tr>
                     {activeFields.map(f => (
                       <td key={f.key} className="px-3 py-2 text-slate-300 italic">
                         ← your data here
-                      蹲
+                      </td>
                     ))}
-                   </tr>
+                  </tr>
                 </tbody>
               </table>
             </div>
@@ -812,7 +813,8 @@ export default function BulkUploadPage() {
                       <th key={f.key}>{f.label}</th>
                     ))}
                     {results.length > 0 && <th>Message</th>}
-                  </thead>
+                  </tr>
+                </thead>
                 <tbody>
                   {rows.map((row, i) => {
                     const result = results[i];
@@ -820,15 +822,15 @@ export default function BulkUploadPage() {
                     const missing = !row.name || !row.admissionNumber || !row.parentPhone;
                     return (
                       <tr key={i} className={rowCls || (missing ? 'bg-amber-50' : '')}>
-                        <td className="text-slate-400 text-xs">{i + 1}蹲
+                        <td className="text-slate-400 text-xs">{i + 1}</td>
                         {results.length > 0 && (
-                           <td>
+                          <td>
                             {result ? (
                               result.status === 'success'
                                 ? <span className="badge badge-green">✓ Done</span>
                                 : <span className="badge badge-red">✗ Error</span>
                             ) : <span className="badge badge-gray">Pending</span>}
-                           </td>
+                          </td>
                         )}
                         <td className={`font-medium ${missing && !row.name ? 'text-red-500 italic' : ''}`}>
                           {row.name || <span className="text-red-400 text-xs">⚠ Missing</span>}

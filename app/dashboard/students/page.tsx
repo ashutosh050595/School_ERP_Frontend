@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Search, Eye, Edit, Trash2, GraduationCap, Upload, Download, Filter, X, Camera, AlertCircle } from 'lucide-react';
+import { Plus, Search, Eye, Edit, Trash2, GraduationCap, Upload, Download, Filter, X, Camera, AlertCircle, ShieldAlert } from 'lucide-react';
 import { studentsApi, idcardsApi, api } from '@/lib/api';
 import { fmt, downloadBlob, GENDERS, BLOOD_GROUPS, CATEGORIES } from '@/lib/utils';
 import { Modal, Confirm, Pagination, SearchInput, Empty, TableSkeleton, Avatar, Tabs } from '@/components/ui';
@@ -20,6 +20,9 @@ export default function StudentsPage() {
   const [viewItem, setViewItem] = useState<any>(null);
   const [deleteId, setDeleteId] = useState<string|null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [showDeleteAll, setShowDeleteAll]     = useState(false);
+  const [deleteAllConfirm, setDeleteAllConfirm] = useState('');
+  const [deletingAll, setDeletingAll]         = useState(false);
   const LIMIT = 15;
 
   const load = useCallback(async () => {
@@ -45,6 +48,20 @@ export default function StudentsPage() {
     finally { setDeleting(false); }
   };
 
+  const handleDeleteAll = async () => {
+    if (deleteAllConfirm !== 'DELETE ALL') return;
+    setDeletingAll(true);
+    try {
+      const r = await studentsApi.deleteAll();
+      toast.success(`${r.data.data?.deleted ?? 'All'} students deleted successfully.`);
+      setShowDeleteAll(false);
+      setDeleteAllConfirm('');
+      load();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Failed to delete all students');
+    } finally { setDeletingAll(false); }
+  };
+
   const downloadIdCard = async (admNo: string) => {
     try {
       const r = await idcardsApi.generate(admNo);
@@ -57,7 +74,14 @@ export default function StudentsPage() {
     <div className="space-y-5 max-w-7xl">
       <div className="page-header">
         <div><h1 className="page-title">Students</h1><p className="page-sub">{total} students enrolled</p></div>
-        <button onClick={()=>setShowAdd(true)} className="btn-primary"><Plus className="w-4 h-4"/>Admit Student</button>
+        <div className="flex gap-2">
+          {total > 0 && (
+            <button onClick={()=>{setShowDeleteAll(true);setDeleteAllConfirm('');}} className="btn-ghost border border-red-200 text-red-600 hover:bg-red-50 hover:border-red-400">
+              <ShieldAlert className="w-4 h-4"/>Delete All
+            </button>
+          )}
+          <button onClick={()=>setShowAdd(true)} className="btn-primary"><Plus className="w-4 h-4"/>Admit Student</button>
+        </div>
       </div>
 
       <Tabs tabs={[{key:'students',label:'All Students'},{key:'classes',label:'Classes & Sections'},{key:'photos',label:'Student Photos'},{key:'bulk',label:'⬆ Bulk Upload'}]} active={tab} onChange={setTab} />
@@ -110,6 +134,56 @@ export default function StudentsPage() {
       {editItem && <StudentForm student={editItem} onClose={()=>setEditItem(null)} onSuccess={()=>{setEditItem(null);load();}} classes={classes}/>}
       {viewItem && <StudentProfile student={viewItem} onClose={()=>setViewItem(null)} onIdCard={()=>downloadIdCard(viewItem.admissionNumber)}/>}
       {deleteId && <Confirm title="Delete Student" message="This will permanently remove the student and all related records. This cannot be undone." onConfirm={handleDelete} onCancel={()=>setDeleteId(null)} loading={deleting}/>}
+
+      {showDeleteAll && (
+        <Modal title="" onClose={()=>!deletingAll&&setShowDeleteAll(false)}>
+          <div className="p-2 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                <ShieldAlert className="w-6 h-6 text-red-600"/>
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-slate-800">Delete All Students</h3>
+                <p className="text-sm text-slate-500">This action is irreversible</p>
+              </div>
+            </div>
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700 space-y-1">
+              <p className="font-medium">⚠ The following data will be permanently deleted:</p>
+              <ul className="list-disc list-inside text-red-600 space-y-0.5 text-xs mt-1">
+                <li>All {total} student records</li>
+                <li>All attendance records</li>
+                <li>All fee payments</li>
+                <li>All exam marks</li>
+                <li>All library book issues</li>
+                <li>All complaints</li>
+              </ul>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                Type <span className="font-mono font-bold text-red-600">DELETE ALL</span> to confirm
+              </label>
+              <input
+                value={deleteAllConfirm}
+                onChange={e=>setDeleteAllConfirm(e.target.value)}
+                placeholder="DELETE ALL"
+                className="form-input font-mono"
+                disabled={deletingAll}
+                autoFocus
+              />
+            </div>
+            <div className="flex gap-2 justify-end pt-1">
+              <button onClick={()=>setShowDeleteAll(false)} disabled={deletingAll} className="btn-ghost">Cancel</button>
+              <button
+                onClick={handleDeleteAll}
+                disabled={deleteAllConfirm !== 'DELETE ALL' || deletingAll}
+                className="btn-primary bg-red-600 hover:bg-red-700 focus:ring-red-500 disabled:opacity-40"
+              >
+                {deletingAll ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>Deleting…</> : <><Trash2 className="w-4 h-4"/>Delete All Students</>}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

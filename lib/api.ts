@@ -34,6 +34,7 @@ export const studentsApi = {
   create:        (d:any) => api.post('/admissions/students',d),
   update:        (id:string,d:any) => api.put(`/admissions/students/${id}`,d),
   delete:        (id:string) => api.delete(`/admissions/students/${id}`),
+  deleteAll:     () => api.delete('/admissions/students/all'),
   getClasses:    () => api.get('/admissions/classes'),
   createClass:   (d:any) => api.post('/admissions/classes',d),
   deleteClass:   (id:string) => api.delete(`/admissions/classes/${id}`),

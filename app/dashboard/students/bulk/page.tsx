@@ -23,16 +23,12 @@ import toast from 'react-hot-toast';
 // ─────────────────────────────────────────────────────────────────
 // Field catalogue — every student field the system knows about
 // ─────────────────────────────────────────────────────────────────
-type FieldDef = {
-  key: string; label: string; required: boolean;
-  group: 'Basic'|'Class'|'Parent'; hint: string; example: string;
-};
-
-const ALL_FIELDS: FieldDef[] = [
+export const ALL_FIELDS: FieldDef[] = [
   // ── Required (locked on)
   { key:'name',              label:'Student Name',        required:true,  group:'Basic',   hint:'Full legal name', example:'Aarav Kumar' },
   { key:'admissionNumber',   label:'Admission Number',    required:true,  group:'Basic',   hint:'Unique ID for the student', example:'2025001' },
   { key:'parentPhone',       label:'Parent Phone',        required:true,  group:'Parent',  hint:'Primary contact number', example:'9876543210' },
+
   // ── Basic (optional)
   { key:'dob',               label:'Date of Birth',       required:false, group:'Basic',   hint:'DD-MM-YYYY or YYYY-MM-DD', example:'2010-04-15' },
   { key:'gender',            label:'Gender',              required:false, group:'Basic',   hint:'MALE | FEMALE | OTHER', example:'MALE' },
@@ -43,11 +39,13 @@ const ALL_FIELDS: FieldDef[] = [
   { key:'aadharNumber',      label:'Aadhar Number',       required:false, group:'Basic',   hint:'12-digit Aadhar', example:'123456789012' },
   { key:'phone',             label:'Student Phone',       required:false, group:'Basic',   hint:'Student\'s own number', example:'9123456789' },
   { key:'address',           label:'Address',             required:false, group:'Basic',   hint:'Full residential address', example:'123 Main St, Koderma' },
+
   // ── Class
   { key:'className',         label:'Class Name',          required:false, group:'Class',   hint:'Exact class name as in system', example:'Class VI' },
   { key:'sectionName',       label:'Section',             required:false, group:'Class',   hint:'Section letter e.g. A', example:'A' },
   { key:'rollNumber',        label:'Roll Number',         required:false, group:'Class',   hint:'Class roll number', example:'15' },
   { key:'previousSchool',    label:'Previous School',     required:false, group:'Class',   hint:'Name of previous school if any', example:'DPS Ranchi' },
+
   // ── Parent
   { key:'fatherName',        label:'Father\'s Name',      required:false, group:'Parent',  hint:'Father\'s full name', example:'Rajesh Kumar' },
   { key:'motherName',        label:'Mother\'s Name',      required:false, group:'Parent',  hint:'Mother\'s full name', example:'Sunita Kumar' },
@@ -55,6 +53,11 @@ const ALL_FIELDS: FieldDef[] = [
   { key:'emergencyContact',  label:'Emergency Contact',   required:false, group:'Parent',  hint:'Alternate phone number', example:'9012345678' },
   { key:'parentOccupation',  label:'Parent Occupation',   required:false, group:'Parent',  hint:'Father/Guardian occupation', example:'Teacher' },
 ];
+
+type FieldDef = {
+  key: string; label: string; required: boolean;
+  group: 'Basic'|'Class'|'Parent'; hint: string; example: string;
+};
 
 const GROUPS: Array<'Basic'|'Class'|'Parent'> = ['Basic', 'Class', 'Parent'];
 const GROUP_COLOR: Record<string, string> = {
@@ -90,7 +93,6 @@ const ROMAN: Record<string,string> = {
   i:'1',ii:'2',iii:'3',iv:'4',v:'5',vi:'6',vii:'7',viii:'8',
   ix:'9',x:'10',xi:'11',xii:'12',
 };
-
 function normaliseClassName(s: string): string {
   return s.toLowerCase()
     .replace(/[^a-z0-9]/g, ' ')   // symbols → space
@@ -112,8 +114,7 @@ export default function BulkUploadPage() {
   const [classesLoading, setClassesLoading] = useState(true);
   const [rows, setRows]           = useState<Record<string,string>[]>([]);
   const [results, setResults]     = useState<RowResult[]>([]);
-  // Pre-validation: class resolution map
-  // key=rowIndex, value={classId,sectionId,resolvedName,warn}
+  // Pre-validation: class resolution map  key=rowIndex, value={classId,sectionId,resolvedName,warn}
   const [classResolution, setClassResolution] = useState<Record<number,{classId:string;sectionId:string;resolvedName:string;warn:string}>>({});
   const [resolving, setResolving] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -151,14 +152,17 @@ export default function BulkUploadPage() {
   // ── Step 2: generate Excel template
   const downloadTemplate = () => {
     const wb = XLSX.utils.book_new();
+
     // Sheet 1: Template
     const wsData: any[][] = [];
+
     // Row 1: Headers
     wsData.push(activeFields.map(f => f.label + (f.required ? ' *' : '')));
     // Row 2: Sample data
     wsData.push(activeFields.map(f => f.example));
     // Row 3: Hints
     wsData.push(activeFields.map(f => f.hint || ''));
+
     const ws = XLSX.utils.aoa_to_sheet(wsData);
 
     // Style header row
@@ -172,22 +176,27 @@ export default function BulkUploadPage() {
         border: { bottom: { style: 'medium', color: { rgb: '000000' } } }
       };
     });
+
     // Style sample row (light blue)
     activeFields.forEach((_, i) => {
       const cell = colLetter(i) + '2';
       if (!ws[cell]) return;
       ws[cell].s = { fill: { fgColor: { rgb: 'DBEAFE' } }, font: { italic: true, color: { rgb: '1E40AF' } } };
     });
+
     // Style hints row (grey italic)
     activeFields.forEach((_, i) => {
       const cell = colLetter(i) + '3';
       if (!ws[cell]) return;
       ws[cell].s = { fill: { fgColor: { rgb: 'F1F5F9' } }, font: { italic: true, color: { rgb: '64748B' }, sz: 9 } };
     });
+
     // Column widths
     ws['!cols'] = activeFields.map(f => ({ wch: Math.max(f.label.length + 4, 18) }));
+
     // Freeze top 3 rows
     ws['!freeze'] = { xSplit: 0, ySplit: 3 };
+
     XLSX.utils.book_append_sheet(wb, ws, 'Students');
 
     // Sheet 2: Reference lists
@@ -200,6 +209,7 @@ export default function BulkUploadPage() {
     ]);
     refWs['!cols'] = [{ wch: 40 }];
     XLSX.utils.book_append_sheet(wb, refWs, 'Reference');
+
     XLSX.writeFile(wb, 'EduNest_Student_Bulk_Template.xlsx');
     toast.success('Template downloaded!');
     setStep(3);
@@ -215,14 +225,18 @@ export default function BulkUploadPage() {
         const wb  = XLSX.read(ev.target?.result, { type: 'binary', cellDates: true });
         const ws  = wb.Sheets[wb.SheetNames[0]];
         const raw: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+
         if (raw.length < 2) { toast.error('Sheet appears empty'); return; }
+
         // Find header row (first row that matches our labels)
         let headerRow = 0;
         for (let i = 0; i < Math.min(5, raw.length); i++) {
           const rowStr = raw[i].join('|').toLowerCase();
           if (rowStr.includes('name') || rowStr.includes('admission')) { headerRow = i; break; }
         }
+
         const headers: string[] = (raw[headerRow] as any[]).map((h: any) => String(h).trim().replace(' *','').toLowerCase());
+
         // Map uploaded headers → field keys
         const headerToKey: Record<string, string> = {};
         ALL_FIELDS.forEach(f => {
@@ -230,6 +244,7 @@ export default function BulkUploadPage() {
           const idx = headers.findIndex(h => h === lbl || h === f.key.toLowerCase());
           if (idx !== -1) headerToKey[idx] = f.key;
         });
+
         // Parse data rows (skip header + sample + hints rows if present)
         const dataStart = headerRow + 1;
         const parsed: Record<string,string>[] = [];
@@ -238,6 +253,7 @@ export default function BulkUploadPage() {
           if (row.every(c => c === '' || c === null || c === undefined)) continue;
           const sample = ALL_FIELDS.map(f => f.example).join('|');
           if (row.slice(0,3).join('|') === ALL_FIELDS.filter(f=>selectedKeys.includes(f.key)).slice(0,3).map(f=>f.example).join('|')) continue; // skip sample row
+
           const obj: Record<string,string> = {};
           Object.entries(headerToKey).forEach(([colIdx, fieldKey]) => {
             let val = row[Number(colIdx)];
@@ -248,6 +264,7 @@ export default function BulkUploadPage() {
           });
           if (obj.name || obj.admissionNumber) parsed.push(obj);
         }
+
         if (parsed.length === 0) { toast.error('No valid data rows found'); return; }
         setRows(parsed);
         setResults([]);
@@ -263,12 +280,14 @@ export default function BulkUploadPage() {
   const resolveClasses = useCallback(async (rowsToResolve: Record<string,string>[]) => {
     if (!rowsToResolve.some(r => r.className)) return; // nothing to resolve
     setResolving(true);
+
     // Fresh class load to make sure we have latest
     let freshClasses = classes;
     if (freshClasses.length === 0) {
       try { const r = await studentsApi.getClasses(); freshClasses = r.data.data || []; setClasses(freshClasses); }
       catch {}
     }
+
     // Build lookup maps from the already-loaded classes (sections are nested inside)
     const classById: Record<string,any> = {};
     const classNormMap: Record<string,string> = {};      // normalised → classId
@@ -278,18 +297,24 @@ export default function BulkUploadPage() {
       classRawMap[c.name.toLowerCase().trim()] = c.id;
       classNormMap[normaliseClassName(c.name)]  = c.id;
     });
+
     // No separate getSections() call needed — sections are nested inside each class object
     // from GET /admissions/classes which includes sections: { ... }
+
     const resolution: Record<number,{classId:string;sectionId:string;resolvedName:string;warn:string}> = {};
+
     for (let i = 0; i < rowsToResolve.length; i++) {
       const row = rowsToResolve[i];
       if (!row.className) { resolution[i] = {classId:'',sectionId:'',resolvedName:'',warn:''}; continue; }
+
       const rawKey  = row.className.toLowerCase().trim();
       const normKey = normaliseClassName(row.className);
+
       // Try exact → raw lowercase → normalised
       const classId = classRawMap[rawKey] || classNormMap[normKey] || '';
       const resolvedClass = classId ? classById[classId] : null;
       const resolvedName  = resolvedClass?.name || '';
+
       let sectionId = '';
       let sectionWarn = '';
       if (classId && row.sectionName) {
@@ -309,19 +334,44 @@ export default function BulkUploadPage() {
           sectionWarn = `Section "${row.sectionName}" not found in ${resolvedName}${available ? ` (available: ${available})` : ''} — will import without section`;
         }
       }
+
       const warn = !classId
         ? `Class "${row.className}" not found — will import without class assignment`
         : sectionWarn;
+
       resolution[i] = { classId, sectionId, resolvedName, warn };
     }
+
     setClassResolution(resolution);
     setResolving(false);
     return resolution;
   }, [classes]);
 
+  // ── Load existing admission numbers for duplicate detection
+  const [existingAdmNos, setExistingAdmNos] = useState<Set<string>>(new Set());
+  const [dupeCheckDone,  setDupeCheckDone]  = useState(false);
+
+  const loadExistingAdmNos = useCallback(async () => {
+    setDupeCheckDone(false);
+    const all: string[] = [];
+    let pg = 1;
+    while (true) {
+      try {
+        const r = await studentsApi.getAll({ page: pg, limit: 100 });
+        const batch: any[] = Array.isArray(r.data.data) ? r.data.data : r.data.data?.students || [];
+        batch.forEach((s:any) => { if (s.admissionNumber) all.push(s.admissionNumber); });
+        if (batch.length < 100) break;
+        pg++;
+      } catch { break; }
+    }
+    setExistingAdmNos(new Set(all));
+    setDupeCheckDone(true);
+    return new Set(all);
+  }, []);
+
   // Run resolution whenever rows change in step 4
   useEffect(() => {
-    if (step === 4 && rows.length > 0) resolveClasses(rows);
+    if (step === 4 && rows.length > 0) { resolveClasses(rows); loadExistingAdmNos(); }
   }, [step, rows]); // eslint-disable-line
 
   // ── Speed presets (ms between requests)
@@ -373,58 +423,77 @@ export default function BulkUploadPage() {
     abortRef.current = false;
     pauseRef.current = false;
     const res: RowResult[] = [];
+
     // Build class resolution — use pre-validated map, or re-resolve if empty
     let resolution = classResolution;
     if (Object.keys(resolution).length === 0) {
       resolution = await resolveClasses(rows) || {};
     }
+
     const delay = SPEEDS[speedIdx].ms;
+
     for (let i = 0; i < rows.length; i++) {
       // Abort check
       if (abortRef.current) {
         toast('Import stopped.', { icon:'⛔' });
         break;
       }
+
       // Pause: wait until unpaused
       while (pauseRef.current) {
         await new Promise(r => setTimeout(r, 300));
         if (abortRef.current) break;
       }
       if (abortRef.current) break;
+
       setCurrentRow(i + 1);
       const row = rows[i];
+
       // Use pre-resolved class/section (non-blocking — warn only, never fail)
       const resolved  = resolution[i] || { classId:'', sectionId:'', warn:'' };
       const classId   = resolved.classId;
       const sectionId = resolved.sectionId;
 
-      // Build API body — flattened, with renamed fields
-      const body: any = {
-        name: row.name,
-        admissionNumber: row.admissionNumber,
-        dateOfBirth: row.dob,
-        parentPhone: row.parentPhone,
-        parentName: row.fatherName || row.motherName || '',
-      };
+      // Check duplicate by admission number
+      if (existingAdmNos.has(row.admissionNumber)) {
+        res.push({ row:i+1, name:row.name||'—', admNo:row.admissionNumber, status:'skip', message:'Already exists — skipped' });
+        setProgress(Math.round(((i+1)/rows.length)*100));
+        setResults([...res]);
+        if (i < rows.length - 1) await new Promise(r => setTimeout(r, 50));
+        continue;
+      }
 
-      if (row.gender)         body.gender = row.gender;
-      if (row.phone)          body.phone = row.phone;
-      if (row.address)        body.address = row.address;
-      if (row.religion)       body.religion = row.religion;
-      if (row.category)       body.category = row.category;
-      if (row.bloodGroup)     body.bloodGroup = row.bloodGroup;
-      if (row.rollNumber)     body.rollNumber = row.rollNumber;
-      if (row.nationality)    body.nationality = row.nationality;
-      if (row.aadharNumber)   body.aadharNumber = row.aadharNumber;
+      // Build body matching EXACTLY the working StudentForm body structure
+      // (same fields, same nesting — backend accepts this shape)
+      const body: any = {
+        name:            row.name,
+        admissionNumber: row.admissionNumber,
+      };
+      if (row.dob)            body.dob            = row.dob;
+      if (row.gender)         body.gender         = row.gender;
+      if (row.phone)          body.phone          = row.phone;
+      if (row.address)        body.address        = row.address;
+      if (row.religion)       body.religion       = row.religion;
+      if (row.category)       body.category       = row.category;
+      if (row.bloodGroup)     body.bloodGroup     = row.bloodGroup;
+      if (row.rollNumber)     body.rollNumber     = row.rollNumber;
+      if (row.nationality)    body.nationality    = row.nationality;
+      if (row.aadharNumber)   body.aadharNumber   = row.aadharNumber;
       if (row.previousSchool) body.previousSchool = row.previousSchool;
 
-      if (sectionId) body.classSectionId = sectionId;
-      else if (classId && !row.sectionName) {
-        const nestedSections: any[] = (classes.find((c:any) => c.id === classId)?.sections) || [];
-        if (nestedSections.length === 1) {
-          body.classSectionId = nestedSections[0].id;
-        }
-      }
+      // Class/section: send classId + sectionId (same as StudentForm — working)
+      if (classId)   body.classId   = classId;
+      if (sectionId) body.sectionId = sectionId;
+
+      // Parent block — same structure as StudentForm
+      const parent: any = {};
+      if (row.parentPhone)      parent.primaryPhone     = row.parentPhone;
+      if (row.fatherName)       parent.fatherName       = row.fatherName;
+      if (row.motherName)       parent.motherName       = row.motherName;
+      if (row.parentEmail)      parent.email            = row.parentEmail;
+      if (row.parentOccupation) parent.occupation       = row.parentOccupation;
+      if (row.emergencyContact) parent.emergencyContact = row.emergencyContact;
+      if (Object.keys(parent).length > 0) body.parent = parent;
 
       // Client-side validation
       if (!body.name || !body.admissionNumber) {
@@ -433,14 +502,8 @@ export default function BulkUploadPage() {
         setResults([...res]);
         continue;
       }
-      if (!body.parentPhone) {
+      if (!row.parentPhone) {
         res.push({ row:i+1, name:row.name, admNo:row.admissionNumber, status:'error', message:'Missing Parent Phone (required)' });
-        setProgress(Math.round(((i+1)/rows.length)*100));
-        setResults([...res]);
-        continue;
-      }
-      if (!body.parentName) {
-        res.push({ row:i+1, name:row.name, admNo:row.admissionNumber, status:'error', message:'Missing Parent Name (required – fill Father\'s Name)' });
         setProgress(Math.round(((i+1)/rows.length)*100));
         setResults([...res]);
         continue;
@@ -459,16 +522,20 @@ export default function BulkUploadPage() {
         if (status === 409) msg = 'Admission number already exists';
         res.push({ row:i+1, name:body.name, admNo:body.admissionNumber, status:'error', message: msg });
       }
+
       setProgress(Math.round(((i+1)/rows.length)*100));
       setResults([...res]);
+
       // Delay between requests
       if (i < rows.length - 1) await new Promise(r => setTimeout(r, delay));
     }
+
     setImporting(false);
     setCurrentRow(0);
     abortRef.current = false;
     pauseRef.current = false;
     setPaused(false);
+
     const ok  = res.filter(r => r.status === 'success').length;
     const err = res.filter(r => r.status === 'error').length;
     if (err === 0) toast.success(`All ${ok} students admitted!`);
@@ -476,10 +543,13 @@ export default function BulkUploadPage() {
     else toast.error(`All ${err} rows failed — check errors below`);
   };
 
-  type RowResult = { row:number; name:string; admNo:string; status:'success'|'error'; message:string; };
+  type RowResult = { row:number; name:string; admNo:string; status:'success'|'error'|'skip'; message:string; };
+
   const successCount = results.filter(r => r.status === 'success').length;
   const errorCount   = results.filter(r => r.status === 'error').length;
+  const skipCount    = results.filter(r => r.status === 'skip').length;
   const isDone       = !importing && results.length > 0 && (results.length === rows.length || abortRef.current);
+
   // Estimated time remaining
   const etaSec = importing && currentRow > 0
     ? Math.round(((rows.length - currentRow) * SPEEDS[speedIdx].ms) / 1000)
@@ -535,6 +605,7 @@ export default function BulkUploadPage() {
               <p className="mt-0.5 text-xs">Locked columns (<Lock className="w-3 h-3 inline"/>) are always required. Your selection is saved automatically.</p>
             </div>
           </div>
+
           {GROUPS.map(group => {
             const fields = ALL_FIELDS.filter(f => f.group === group);
             const optFields = fields.filter(f => !f.required);
@@ -564,7 +635,7 @@ export default function BulkUploadPage() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5">
                             <span className="text-sm font-semibold text-slate-700">{f.label}</span>
-                            {f.required && <Lock className="w-3 h-3 text-primary-500" aria-label="Required"/>}
+                            {f.required && <Lock className="w-3 h-3 text-primary-500" title="Required"/>}
                           </div>
                           {f.hint && <p className="text-xs text-slate-400 mt-0.5 leading-tight">{f.hint}</p>}
                           <p className="text-xs text-primary-500 mt-1 font-mono">e.g. {f.example}</p>
@@ -576,6 +647,7 @@ export default function BulkUploadPage() {
               </div>
             );
           })}
+
           <div className="flex items-center justify-between p-4 card bg-slate-50">
             <p className="text-sm text-slate-500"><span className="font-semibold text-slate-700">{selectedKeys.length}</span> columns selected</p>
             <button onClick={()=>setStep(2)} className="btn-primary">
@@ -637,6 +709,7 @@ export default function BulkUploadPage() {
               </button>
             </div>
           </div>
+
           <div className="card p-4 border-dashed border-2 border-slate-300 text-center space-y-2">
             <p className="text-sm text-slate-500">Already have a filled template?</p>
             <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleFile}/>
@@ -671,6 +744,7 @@ export default function BulkUploadPage() {
       {/* ── STEP 4: Preview + Import ── */}
       {step === 4 && (
         <div className="space-y-5">
+
           {/* Speed selector — shown before import starts */}
           {!importing && results.length === 0 && (
             <div className="card p-4 space-y-3">
@@ -707,10 +781,12 @@ export default function BulkUploadPage() {
                 <p className="text-xs text-slate-400">{activeFields.length} columns detected</p>
               </div>
             </div>
+
             {/* Controls */}
             {isDone ? (
               <div className="flex gap-3 ml-auto flex-wrap">
                 <span className="badge badge-green">{successCount} admitted</span>
+                {skipCount  > 0 && <span className="badge badge-blue">{skipCount} skipped</span>}
                 {errorCount > 0 && <span className="badge badge-red">{errorCount} failed</span>}
               </div>
             ) : importing ? (
@@ -823,7 +899,7 @@ export default function BulkUploadPage() {
                         ) : (
                           <span className="text-green-600 text-xs flex items-center gap-1 flex-shrink-0">
                             <CheckCircle2 className="w-3 h-3"/>
-                            {res.resolvedName}{res.sectionId ? ' · Sec OK' : row.sectionName ? ' · No sec' : ''}
+                            {res.resolvedName}{res.sectionId ? ` · Sec OK` : row.sectionName ? ' · No sec' : ''}
                           </span>
                         )}
                       </div>

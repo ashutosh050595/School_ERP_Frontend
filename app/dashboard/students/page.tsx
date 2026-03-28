@@ -25,9 +25,11 @@ export default function StudentsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await studentsApi.getAll({ page, limit:LIMIT, search:search||undefined, classId:classFilter||undefined });
-      setStudents(r.data.data?.students || []);
-      setTotal(r.data.data?.total || 0);
+      const r = await studentsApi.getAll({ page, limit:LIMIT, search:search||undefined, classSectionId:classFilter||undefined });
+      // Backend returns { success, data: [...], pagination: { total, ... } }
+      const respData = r.data.data || [];
+      setStudents(Array.isArray(respData) ? respData : respData.students || []);
+      setTotal(r.data.pagination?.total || r.data.data?.total || 0);
     } catch { toast.error('Failed to load students'); }
     finally { setLoading(false); }
   }, [page, search, classFilter]);
@@ -58,12 +60,7 @@ export default function StudentsPage() {
         <button onClick={()=>setShowAdd(true)} className="btn-primary"><Plus className="w-4 h-4"/>Admit Student</button>
       </div>
 
-      <Tabs tabs={[
-        {key:'students', label:'All Students'},
-        {key:'classes',  label:'Classes & Sections'},
-        {key:'photos',   label:'Student Photos'},
-        {key:'bulk',     label:'⬆ Bulk Upload'},
-      ]} active={tab} onChange={setTab} />
+      <Tabs tabs={[{key:'students',label:'All Students'},{key:'classes',label:'Classes & Sections'},{key:'photos',label:'Student Photos'},{key:'bulk',label:'⬆ Bulk Upload'}]} active={tab} onChange={setTab} />
 
       {tab==='students' && <>
         <div className="card p-4 flex flex-wrap gap-3">
@@ -72,52 +69,30 @@ export default function StudentsPage() {
             <option value="">All Classes</option>
             {classes.map((c:any)=><option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
-          {(search||classFilter) && (
-            <button onClick={()=>{setSearch('');setClassFilter('');}} className="btn-ghost text-xs">
-              <X className="w-3 h-3"/>Clear
-            </button>
-          )}
+          {(search||classFilter) && <button onClick={()=>{setSearch('');setClassFilter('');}} className="btn-ghost text-xs"><X className="w-3 h-3"/>Clear</button>}
         </div>
         <div className="card overflow-hidden">
           <div className="overflow-x-auto">
             <table className="tbl">
-              <thead>
-                <tr>
-                  <th>Student</th><th>Adm. No.</th><th>Class</th><th>Gender</th>
-                  <th>Parent</th><th>Phone</th><th>Status</th><th>Actions</th>
-                </tr>
-              </thead>
+              <thead><tr><th>Student</th><th>Adm. No.</th><th>Class</th><th>Gender</th><th>Parent</th><th>Phone</th><th>Status</th><th>Actions</th></tr></thead>
               <tbody>
                 {loading ? <TableSkeleton rows={8} cols={8}/> : students.length===0 ? (
-                  <tr><td colSpan={8}>
-                    <Empty icon={GraduationCap} title="No students found" sub="Try adjusting filters or admit a new student"
-                      action={<button onClick={()=>setShowAdd(true)} className="btn-primary"><Plus className="w-4 h-4"/>Admit Student</button>}/>
-                  </td></tr>
+                  <tr><td colSpan={8}><Empty icon={GraduationCap} title="No students found" sub="Try adjusting filters or admit a new student" action={<button onClick={()=>setShowAdd(true)} className="btn-primary"><Plus className="w-4 h-4"/>Admit Student</button>}/></td></tr>
                 ) : students.map((s:any)=>(
                   <tr key={s.id}>
-                    <td>
-                      <div className="flex items-center gap-2.5">
-                        <Avatar name={s.name} size="sm"/>
-                        <div>
-                          <p className="font-medium text-slate-800 text-sm">{s.name}</p>
-                          <p className="text-xs text-slate-400">{s.dob?fmt.date(s.dob):''}</p>
-                        </div>
-                      </div>
-                    </td>
+                    <td><div className="flex items-center gap-2.5"><Avatar name={s.name} size="sm"/><div><p className="font-medium text-slate-800 text-sm">{s.name}</p><p className="text-xs text-slate-400">{s.dob?fmt.date(s.dob):''}</p></div></div></td>
                     <td><span className="font-mono text-xs bg-slate-100 px-2 py-0.5 rounded">{s.admissionNumber}</span></td>
-                    <td className="text-sm">{s.class?.name||'—'}{s.section?.section?`-${s.section.section}`:''}</td>
+                    <td className="text-sm">{s.classSection?.class?.name||s.class?.name||'—'}{s.classSection?.section?`-${s.classSection.section}`:s.section?.section?`-${s.section.section}`:''}</td>
                     <td><span className="badge badge-gray">{s.gender||'—'}</span></td>
                     <td className="text-sm text-slate-600">{s.parent?.fatherName||'—'}</td>
                     <td className="text-sm text-slate-600">{s.parent?.primaryPhone||'—'}</td>
                     <td><span className={`badge ${s.isActive!==false?'badge-green':'badge-red'}`}>{s.isActive!==false?'Active':'Inactive'}</span></td>
-                    <td>
-                      <div className="flex gap-1">
-                        <button onClick={()=>setViewItem(s)} className="btn-icon" title="View"><Eye className="w-3.5 h-3.5"/></button>
-                        <button onClick={()=>setEditItem(s)} className="btn-icon" title="Edit"><Edit className="w-3.5 h-3.5"/></button>
-                        <button onClick={()=>downloadIdCard(s.admissionNumber)} className="btn-icon" title="ID Card"><Download className="w-3.5 h-3.5"/></button>
-                        <button onClick={()=>setDeleteId(s.id)} className="btn-icon hover:text-danger-500" title="Delete"><Trash2 className="w-3.5 h-3.5"/></button>
-                      </div>
-                    </td>
+                    <td><div className="flex gap-1">
+                      <button onClick={()=>setViewItem(s)} className="btn-icon" title="View"><Eye className="w-3.5 h-3.5"/></button>
+                      <button onClick={()=>setEditItem(s)} className="btn-icon" title="Edit"><Edit className="w-3.5 h-3.5"/></button>
+                      <button onClick={()=>downloadIdCard(s.admissionNumber)} className="btn-icon" title="ID Card"><Download className="w-3.5 h-3.5"/></button>
+                      <button onClick={()=>setDeleteId(s.id)} className="btn-icon hover:text-danger-500" title="Delete"><Trash2 className="w-3.5 h-3.5"/></button>
+                    </div></td>
                   </tr>
                 ))}
               </tbody>
@@ -131,7 +106,7 @@ export default function StudentsPage() {
       {tab==='photos'  && <PhotosManager classes={classes}/>}
       {tab==='bulk'    && <BulkUploadRedirect/>}
 
-      {showAdd  && <StudentForm onClose={()=>setShowAdd(false)}  onSuccess={()=>{setShowAdd(false);load();}}  classes={classes}/>}
+      {showAdd && <StudentForm onClose={()=>setShowAdd(false)} onSuccess={()=>{setShowAdd(false);load();}} classes={classes}/>}
       {editItem && <StudentForm student={editItem} onClose={()=>setEditItem(null)} onSuccess={()=>{setEditItem(null);load();}} classes={classes}/>}
       {viewItem && <StudentProfile student={viewItem} onClose={()=>setViewItem(null)} onIdCard={()=>downloadIdCard(viewItem.admissionNumber)}/>}
       {deleteId && <Confirm title="Delete Student" message="This will permanently remove the student and all related records. This cannot be undone." onConfirm={handleDelete} onCancel={()=>setDeleteId(null)} loading={deleting}/>}
@@ -139,35 +114,24 @@ export default function StudentsPage() {
   );
 }
 
-// ─── Student Form ────────────────────────────────────────────────
 function StudentForm({ student, onClose, onSuccess, classes }: any) {
   const editing = !!student;
   const [form, setForm] = useState({
-    name:              student?.name||'',
-    admissionNumber:   student?.admissionNumber||'',
-    dob:               student?.dob ? fmt.dateInput(student.dob) : '',
-    gender:            student?.gender||'MALE',
-    phone:             student?.phone||'',
-    address:           student?.address||'',
-    classId:           student?.class?.id||'',
-    sectionId:         student?.section?.id||'',
-    religion:          student?.religion||'',
-    category:          student?.category||'GENERAL',
-    bloodGroup:        student?.bloodGroup||'',
-    rollNumber:        student?.rollNumber||'',
-    fatherName:        student?.parent?.fatherName||'',
-    motherName:        student?.parent?.motherName||'',
-    parentPhone:       student?.parent?.primaryPhone||'',
-    parentEmail:       student?.parent?.email||'',
-    parentOccupation:  student?.parent?.occupation||'',
-    emergencyContact:  student?.parent?.emergencyContact||'',
-    nationality:       student?.nationality||'Indian',
-    aadharNumber:      student?.aadharNumber||'',
-    previousSchool:    student?.previousSchool||'',
+    name: student?.name||'', admissionNumber: student?.admissionNumber||'',
+    dob: student?.dob?fmt.dateInput(student.dob):'', gender: student?.gender||'MALE',
+    phone: student?.phone||'', address: student?.address||'',
+    classId: student?.class?.id||'', sectionId: student?.section?.id||'',
+    religion: student?.religion||'', category: student?.category||'GENERAL',
+    bloodGroup: student?.bloodGroup||'', rollNumber: student?.rollNumber||'',
+    fatherName: student?.parent?.fatherName||'', motherName: student?.parent?.motherName||'',
+    parentPhone: student?.parent?.primaryPhone||'', parentEmail: student?.parent?.email||'',
+    parentOccupation: student?.parent?.occupation||'', emergencyContact: student?.parent?.emergencyContact||'',
+    nationality: student?.nationality||'Indian', aadharNumber: student?.aadharNumber||'',
+    previousSchool: student?.previousSchool||'',
   });
   const [sections, setSections] = useState<any[]>([]);
   const [saving, setSaving]     = useState(false);
-  const f = (k:string, v:string) => setForm(p=>({...p,[k]:v}));
+  const f = (k:string,v:string) => setForm(p=>({...p,[k]:v}));
 
   useEffect(()=>{
     if (form.classId) studentsApi.getSections(form.classId).then(r=>setSections(r.data.data||[])).catch(()=>{});
@@ -181,15 +145,12 @@ function StudentForm({ student, onClose, onSuccess, classes }: any) {
         name:form.name, admissionNumber:form.admissionNumber, dob:form.dob||undefined,
         gender:form.gender, phone:form.phone||undefined, address:form.address||undefined,
         classId:form.classId||undefined, sectionId:form.sectionId||undefined,
-        religion:form.religion||undefined, category:form.category,
-        bloodGroup:form.bloodGroup||undefined, rollNumber:form.rollNumber||undefined,
-        nationality:form.nationality||undefined, aadharNumber:form.aadharNumber||undefined,
-        previousSchool:form.previousSchool||undefined,
-        parent:{
-          fatherName:form.fatherName||undefined, motherName:form.motherName||undefined,
+        religion:form.religion||undefined, category:form.category, bloodGroup:form.bloodGroup||undefined,
+        rollNumber:form.rollNumber||undefined, nationality:form.nationality||undefined,
+        aadharNumber:form.aadharNumber||undefined, previousSchool:form.previousSchool||undefined,
+        parent:{ fatherName:form.fatherName||undefined, motherName:form.motherName||undefined,
           primaryPhone:form.parentPhone||undefined, email:form.parentEmail||undefined,
-          occupation:form.parentOccupation||undefined, emergencyContact:form.emergencyContact||undefined,
-        },
+          occupation:form.parentOccupation||undefined, emergencyContact:form.emergencyContact||undefined },
       };
       if (editing) await studentsApi.update(student.id, body);
       else await studentsApi.create(body);
@@ -203,10 +164,8 @@ function StudentForm({ student, onClose, onSuccess, classes }: any) {
     <Modal title={editing?`Edit — ${student.name}`:'Admit New Student'} onClose={onClose} size="xl">
       <form onSubmit={submit} className="space-y-5">
         <Section title="Basic Information">
-          <Row2>
-            <F label="Full Name *"><input required value={form.name} onChange={e=>f('name',e.target.value)} className="form-input" placeholder="Student's full name"/></F>
-            <F label="Admission Number *"><input required value={form.admissionNumber} onChange={e=>f('admissionNumber',e.target.value)} className="form-input" placeholder="e.g. 2025001"/></F>
-          </Row2>
+          <Row2><F label="Full Name *"><input required value={form.name} onChange={e=>f('name',e.target.value)} className="form-input" placeholder="Student's full name"/></F>
+          <F label="Admission Number *"><input required value={form.admissionNumber} onChange={e=>f('admissionNumber',e.target.value)} className="form-input" placeholder="e.g. 2025001"/></F></Row2>
           <Row3>
             <F label="Date of Birth"><input type="date" value={form.dob} onChange={e=>f('dob',e.target.value)} className="form-input"/></F>
             <F label="Gender *"><select value={form.gender} onChange={e=>f('gender',e.target.value)} className="form-select">{GENDERS.map(g=><option key={g} value={g}>{g}</option>)}</select></F>
@@ -226,18 +185,8 @@ function StudentForm({ student, onClose, onSuccess, classes }: any) {
 
         <Section title="Class & Section">
           <Row3>
-            <F label="Class">
-              <select value={form.classId} onChange={e=>f('classId',e.target.value)} className="form-select">
-                <option value="">Select class</option>
-                {classes.map((c:any)=><option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </F>
-            <F label="Section">
-              <select value={form.sectionId} onChange={e=>f('sectionId',e.target.value)} className="form-select" disabled={!sections.length}>
-                <option value="">Select section</option>
-                {sections.map((s:any)=><option key={s.id} value={s.id}>{s.section}</option>)}
-              </select>
-            </F>
+            <F label="Class"><select value={form.classId} onChange={e=>f('classId',e.target.value)} className="form-select"><option value="">Select class</option>{classes.map((c:any)=><option key={c.id} value={c.id}>{c.name}</option>)}</select></F>
+            <F label="Section"><select value={form.sectionId} onChange={e=>f('sectionId',e.target.value)} className="form-select" disabled={!sections.length}><option value="">Select section</option>{sections.map((s:any)=><option key={s.id} value={s.id}>{s.section}</option>)}</select></F>
             <F label="Roll Number"><input value={form.rollNumber} onChange={e=>f('rollNumber',e.target.value)} className="form-input" placeholder="Roll no."/></F>
           </Row3>
           <F label="Previous School"><input value={form.previousSchool} onChange={e=>f('previousSchool',e.target.value)} className="form-input" placeholder="Previous school name (if any)"/></F>
@@ -259,7 +208,7 @@ function StudentForm({ student, onClose, onSuccess, classes }: any) {
         <div className="flex gap-3 pt-2 border-t border-slate-100">
           <button type="button" onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
           <button type="submit" disabled={saving} className="btn-primary flex-1 justify-center">
-            {saving ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>Saving…</> : editing ? 'Update Student' : 'Admit Student'}
+            {saving?<><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>Saving…</>:editing?'Update Student':'Admit Student'}
           </button>
         </div>
       </form>
@@ -267,7 +216,6 @@ function StudentForm({ student, onClose, onSuccess, classes }: any) {
   );
 }
 
-// ─── Student Profile viewer ──────────────────────────────────────
 function StudentProfile({ student, onClose, onIdCard }:any) {
   return (
     <Modal title="Student Profile" onClose={onClose} size="md">
@@ -277,23 +225,13 @@ function StudentProfile({ student, onClose, onIdCard }:any) {
           <div>
             <h3 className="font-bold text-lg text-slate-800">{student.name}</h3>
             <p className="text-primary-600 font-mono text-sm">{student.admissionNumber}</p>
-            <p className="text-slate-500 text-sm">{student.class?.name||'—'}{student.section?.section?`-${student.section.section}`:''}</p>
+            <p className="text-slate-500 text-sm">{student.classSection?.class?.name||student.class?.name||'—'}{student.classSection?.section?`-${student.classSection.section}`:student.section?.section?`-${student.section.section}`:''}</p>
             <span className={`badge mt-1 ${student.isActive!==false?'badge-green':'badge-red'}`}>{student.isActive!==false?'Active':'Inactive'}</span>
           </div>
         </div>
         <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
-          {[
-            ['Gender',student.gender],['DOB',student.dob?fmt.date(student.dob):'—'],
-            ['Blood Group',student.bloodGroup||'—'],['Category',student.category||'—'],
-            ['Religion',student.religion||'—'],['Roll No.',student.rollNumber||'—'],
-            ['Phone',student.phone||'—'],['Aadhar',student.aadharNumber||'—'],
-            ['Father',student.parent?.fatherName||'—'],['Mother',student.parent?.motherName||'—'],
-            ['Parent Phone',student.parent?.primaryPhone||'—'],['Address',student.address||'—'],
-          ].map(([k,v])=>(
-            <div key={k} className="flex flex-col">
-              <span className="text-xs text-slate-400 font-semibold uppercase tracking-wide">{k}</span>
-              <span className="text-slate-700">{v}</span>
-            </div>
+          {[['Gender',student.gender],['DOB',student.dob?fmt.date(student.dob):'—'],['Blood Group',student.bloodGroup||'—'],['Category',student.category||'—'],['Religion',student.religion||'—'],['Roll No.',student.rollNumber||'—'],['Phone',student.phone||'—'],['Aadhar',student.aadharNumber||'—'],['Father',student.parent?.fatherName||'—'],['Mother',student.parent?.motherName||'—'],['Parent Phone',student.parent?.primaryPhone||'—'],['Address',student.address||'—']].map(([k,v])=>(
+            <div key={k} className="flex flex-col"><span className="text-xs text-slate-400 font-semibold uppercase tracking-wide">{k}</span><span className="text-slate-700">{v}</span></div>
           ))}
         </div>
         <div className="flex gap-3 pt-3 border-t border-slate-100">
@@ -305,15 +243,15 @@ function StudentProfile({ student, onClose, onIdCard }:any) {
   );
 }
 
-// ─── Classes Manager ─────────────────────────────────────────────
 function ClassesManager({ classes, reload }:any) {
-  const [showAdd,       setShowAdd]       = useState(false);
-  const [expanded,      setExpanded]      = useState<string|null>(null);
-  const [deleteClassId, setDeleteClassId] = useState<string|null>(null);
-  const [deleting,      setDeleting]      = useState(false);
-  const [academicYears, setAcademicYears] = useState<any[]>([]);
-  const [yearsLoading,  setYearsLoading]  = useState(true);
+  const [showAdd,      setShowAdd]      = useState(false);
+  const [expanded,     setExpanded]     = useState<string|null>(null);
+  const [deleteClassId,setDeleteClassId]= useState<string|null>(null);
+  const [deleting,     setDeleting]     = useState(false);
+  const [academicYears,setAcademicYears]= useState<any[]>([]);
+  const [yearsLoading, setYearsLoading] = useState(true);
 
+  // Load academic years for the create-class form
   useEffect(() => {
     api.get('/admissions/academic-years')
       .then(r => setAcademicYears(r.data.data || []))
@@ -322,6 +260,7 @@ function ClassesManager({ classes, reload }:any) {
   }, []);
 
   const currentYear = academicYears.find((y:any) => y.isCurrent) || academicYears[0];
+
   const toggleExpand = (id:string) => setExpanded(p => p === id ? null : id);
 
   const deleteClass = async () => {
@@ -345,6 +284,7 @@ function ClassesManager({ classes, reload }:any) {
         </button>
       </div>
 
+      {/* Classes list */}
       <div className="space-y-2">
         {classes.length === 0 && (
           <div className="card p-10 text-center text-slate-400">
@@ -353,6 +293,7 @@ function ClassesManager({ classes, reload }:any) {
           </div>
         )}
         {classes.map((c:any) => {
+          // sections come nested in the class object from getClasses
           const secs: any[] = c.sections || [];
           return (
             <div key={c.id} className="card overflow-hidden">
@@ -369,8 +310,7 @@ function ClassesManager({ classes, reload }:any) {
                 </div>
                 <button
                   onClick={e=>{e.stopPropagation(); setDeleteClassId(c.id);}}
-                  className="btn-icon hover:text-red-500 mr-2"
-                  title="Delete class"
+                  className="btn-icon hover:text-red-500 mr-2" title="Delete class"
                 >
                   <Trash2 className="w-3.5 h-3.5"/>
                 </button>
@@ -395,6 +335,7 @@ function ClassesManager({ classes, reload }:any) {
         })}
       </div>
 
+      {/* Create class modal */}
       {showAdd && (
         <CreateClassModal
           academicYears={academicYears}
@@ -418,18 +359,20 @@ function ClassesManager({ classes, reload }:any) {
   );
 }
 
-// ─── Create Class Modal ──────────────────────────────────────────
+// Separate modal for class creation — keeps the form clean
 function CreateClassModal({ academicYears, yearsLoading, defaultYearId, onClose, onSuccess }:any) {
-  const [name,           setName]           = useState('');
+  const [name,         setName]         = useState('');
   const [academicYearId, setAcademicYearId] = useState(defaultYearId);
-  const [sectionsInput,  setSectionsInput]  = useState('A');
-  const [saving,         setSaving]         = useState(false);
-  const [error,          setError]          = useState('');
+  // sections: comma-separated input → split into array on submit
+  const [sectionsInput, setSectionsInput] = useState('A');
+  const [saving, setSaving] = useState(false);
+  const [error,  setError]  = useState('');
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
+    // Parse sections: "A, B, C" → ["A","B","C"]
     const sections = sectionsInput
       .split(/[,;\n]+/)
       .map(s => s.trim().toUpperCase())
@@ -441,7 +384,11 @@ function CreateClassModal({ academicYears, yearsLoading, defaultYearId, onClose,
 
     setSaving(true);
     try {
-      await studentsApi.createClass({ name: name.trim(), academicYearId, sections });
+      await studentsApi.createClass({
+        name:          name.trim(),
+        academicYearId,
+        sections,           // ← what the backend actually expects
+      });
       toast.success(`Class "${name.trim()}" created with ${sections.length} section${sections.length>1?'s':''}!`);
       onSuccess();
     } catch(err:any) {
@@ -457,6 +404,7 @@ function CreateClassModal({ academicYears, yearsLoading, defaultYearId, onClose,
     <Modal title="Create New Class" onClose={onClose} size="sm">
       <form onSubmit={submit} className="space-y-4">
 
+        {/* Academic year picker */}
         <div>
           <label className="form-label">Academic Year *</label>
           {yearsLoading ? (
@@ -483,6 +431,7 @@ function CreateClassModal({ academicYears, yearsLoading, defaultYearId, onClose,
           )}
         </div>
 
+        {/* Class name */}
         <div>
           <label className="form-label">Class Name *</label>
           <input
@@ -494,6 +443,7 @@ function CreateClassModal({ academicYears, yearsLoading, defaultYearId, onClose,
           />
         </div>
 
+        {/* Sections */}
         <div>
           <label className="form-label">Sections * <span className="font-normal text-slate-400">(comma-separated)</span></label>
           <input
@@ -503,10 +453,10 @@ function CreateClassModal({ academicYears, yearsLoading, defaultYearId, onClose,
             placeholder="A, B, C"
           />
           <p className="text-xs text-slate-400 mt-1.5">
-            Enter section letters separated by commas. E.g.{' '}
-            <code className="bg-slate-100 px-1 rounded">A, B</code> creates two sections.
+            Enter section letters separated by commas. E.g. <code className="bg-slate-100 px-1 rounded">A, B</code> creates two sections.
             Sections cannot be added later — create all needed sections now.
           </p>
+          {/* Preview */}
           {sectionsInput.trim() && (
             <div className="flex flex-wrap gap-1.5 mt-2">
               {sectionsInput.split(/[,;\n]+/).map(s=>s.trim().toUpperCase()).filter(s=>s).map(s=>(
@@ -516,6 +466,7 @@ function CreateClassModal({ academicYears, yearsLoading, defaultYearId, onClose,
           )}
         </div>
 
+        {/* Error */}
         {error && (
           <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
             <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5"/>
@@ -537,49 +488,43 @@ function CreateClassModal({ academicYears, yearsLoading, defaultYearId, onClose,
   );
 }
 
-// ─── Photos Manager ──────────────────────────────────────────────
 function PhotosManager({ classes }:any) {
   const singleRef = useRef<HTMLInputElement>(null);
   const bulkRef   = useRef<HTMLInputElement>(null);
-  const [admNo,        setAdmNo]        = useState('');
-  const [uploading,    setUploading]    = useState(false);
-  const [bulkUploading,setBulkUploading]= useState(false);
-  const [bulkResult,   setBulkResult]   = useState<any>(null);
+  const [admNo, setAdmNo]     = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [bulkUploading, setBulkUploading] = useState(false);
+  const [bulkResult, setBulkResult] = useState<any>(null);
 
   const uploadSingle = async (file: File) => {
-    if (!admNo) return toast.error('Enter admission number first');
+    if(!admNo) return toast.error('Enter admission number first');
     setUploading(true);
     try {
-      const fd = new FormData();
-      fd.append('photo', file);
-      fd.append('admissionNumber', admNo);
+      const fd = new FormData(); fd.append('photo', file); fd.append('admissionNumber', admNo);
       await studentsApi.uploadPhoto(fd);
       toast.success('Photo uploaded!');
     } catch(err:any){ toast.error(err.response?.data?.message||'Upload failed'); }
-    finally { setUploading(false); }
+    finally{ setUploading(false); }
   };
 
   const uploadBulk = async (file: File) => {
     setBulkUploading(true); setBulkResult(null);
     try {
-      const fd = new FormData();
-      fd.append('photos', file);
+      const fd = new FormData(); fd.append('photos', file);
       const r = await studentsApi.bulkPhoto(fd);
       setBulkResult(r.data.data);
       toast.success('Bulk upload done!');
     } catch(err:any){ toast.error(err.response?.data?.message||'Upload failed'); }
-    finally { setBulkUploading(false); }
+    finally{ setBulkUploading(false); }
   };
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+      {/* Single photo upload */}
       <div className="card p-6 space-y-4">
         <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
           <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center"><Camera className="w-5 h-5 text-blue-600"/></div>
-          <div>
-            <p className="font-bold text-slate-800">Upload Single Photo</p>
-            <p className="text-xs text-slate-400">Assign photo to a student by admission number</p>
-          </div>
+          <div><p className="font-bold text-slate-800">Upload Single Photo</p><p className="text-xs text-slate-400">Assign photo to a student by admission number</p></div>
         </div>
         <div>
           <label className="form-label">Admission Number *</label>
@@ -587,31 +532,23 @@ function PhotosManager({ classes }:any) {
         </div>
         <input ref={singleRef} type="file" accept="image/*" className="hidden" onChange={e=>e.target.files?.[0]&&uploadSingle(e.target.files[0])}/>
         <button onClick={()=>singleRef.current?.click()} disabled={!admNo||uploading} className="btn-primary w-full justify-center">
-          {uploading
-            ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>Uploading…</>
-            : <><Upload className="w-4 h-4"/>Choose Photo & Upload</>
-          }
+          {uploading?<><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>Uploading…</>:<><Upload className="w-4 h-4"/>Choose Photo & Upload</>}
         </button>
       </div>
 
+      {/* Bulk photo upload */}
       <div className="card p-6 space-y-4">
         <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
           <div className="w-9 h-9 rounded-lg bg-purple-50 flex items-center justify-center"><Upload className="w-5 h-5 text-purple-600"/></div>
-          <div>
-            <p className="font-bold text-slate-800">Bulk Photo Upload</p>
-            <p className="text-xs text-slate-400">ZIP file with photos named by admission number</p>
-          </div>
+          <div><p className="font-bold text-slate-800">Bulk Photo Upload</p><p className="text-xs text-slate-400">ZIP file with photos named by admission number</p></div>
         </div>
         <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
           <p className="font-semibold mb-1">How to prepare the ZIP:</p>
-          <p>Name each photo as the admission number (e.g. <code className="bg-amber-100 px-1 rounded">2025001.jpg</code>). Compress into a single ZIP.</p>
+          <p>Name each photo file as the student's admission number (e.g. <code className="bg-amber-100 px-1 rounded">2025001.jpg</code>). Compress all photos into a single ZIP file.</p>
         </div>
         <input ref={bulkRef} type="file" accept=".zip" className="hidden" onChange={e=>e.target.files?.[0]&&uploadBulk(e.target.files[0])}/>
         <button onClick={()=>bulkRef.current?.click()} disabled={bulkUploading} className="btn-primary w-full justify-center bg-purple-600 hover:bg-purple-700 focus:ring-purple-500">
-          {bulkUploading
-            ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>Uploading…</>
-            : <><Upload className="w-4 h-4"/>Choose ZIP & Upload</>
-          }
+          {bulkUploading?<><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>Uploading…</>:<><Upload className="w-4 h-4"/>Choose ZIP & Upload</>}
         </button>
         {bulkResult && (
           <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-sm">
@@ -628,7 +565,6 @@ function PhotosManager({ classes }:any) {
   );
 }
 
-// ─── Bulk Upload Redirect ────────────────────────────────────────
 function BulkUploadRedirect() {
   return (
     <div className="flex flex-col items-center justify-center py-16 text-center space-y-4">
@@ -648,13 +584,7 @@ function BulkUploadRedirect() {
   );
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────
-const Section = ({title,children}:any) => (
-  <div>
-    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 pb-1.5 border-b border-slate-100">{title}</p>
-    <div className="space-y-3">{children}</div>
-  </div>
-);
+const Section = ({title,children}:any) => <div><p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 pb-1.5 border-b border-slate-100">{title}</p><div className="space-y-3">{children}</div></div>;
 const Row2 = ({children}:any) => <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">{children}</div>;
 const Row3 = ({children}:any) => <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">{children}</div>;
-const F    = ({label,children}:any) => <div><label className="form-label">{label}</label>{children}</div>;
+const F = ({label,children}:any) => <div><label className="form-label">{label}</label>{children}</div>;

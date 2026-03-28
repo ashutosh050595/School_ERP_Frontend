@@ -425,11 +425,12 @@ export default function BulkUploadPage() {
       resolution = await resolveClasses(rows) || {};
     }
 
-    // Build all job bodies upfront
+    // Always re-fetch fresh to guarantee duplicate detection is up-to-date
+    const freshAdmNos = await loadExistingAdmNos();
     type Job = { index: number; row: Record<string,string>; body: any; resolved: any; skip?: string; validationErr?: string; };
     const jobs: Job[] = rows.map((row, i) => {
       // Duplicate check
-      if (existingAdmNos.has(row.admissionNumber)) {
+      if (freshAdmNos.has(row.admissionNumber)) {
         return { index:i, row, body:null, resolved:null, skip:'Already exists — skipped' };
       }
 

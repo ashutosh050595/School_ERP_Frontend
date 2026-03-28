@@ -435,7 +435,8 @@ export default function BulkUploadPage() {
 
       const resolved = resolution[i] || { classId:'', sectionId:'', warn:'' };
       const body: any = { name: row.name, admissionNumber: row.admissionNumber };
-      if (row.dob)            body.dob            = row.dob;
+      // ── Date of Birth: backend expects "dateOfBirth" ──
+      if (row.dob)            body.dateOfBirth    = row.dob;
       if (row.gender)         body.gender         = row.gender;
       if (row.phone)          body.phone          = row.phone;
       if (row.address)        body.address        = row.address;
@@ -444,21 +445,22 @@ export default function BulkUploadPage() {
       if (row.bloodGroup)     body.bloodGroup     = row.bloodGroup;
       if (row.rollNumber)     body.rollNumber     = row.rollNumber;
       if (row.nationality)    body.nationality    = row.nationality;
-      if (row.aadharNumber)   body.aadharNumber   = row.aadharNumber;
+      // ── Aadhaar: backend schema spells it "aadhaarNumber" (double a) ──
+      if (row.aadharNumber)   body.aadhaarNumber  = row.aadharNumber;
       if (row.previousSchool) body.previousSchool = row.previousSchool;
-      if (resolved.classId)   body.classId        = resolved.classId;
-      if (resolved.sectionId) body.sectionId      = resolved.sectionId;
-      const parent: any = {};
-      if (row.parentPhone)      parent.primaryPhone     = row.parentPhone;
-      if (row.fatherName)       parent.fatherName       = row.fatherName;
-      if (row.motherName)       parent.motherName       = row.motherName;
-      if (row.parentEmail)      parent.email            = row.parentEmail;
-      if (row.parentOccupation) parent.occupation       = row.parentOccupation;
-      if (row.emergencyContact) parent.emergencyContact = row.emergencyContact;
-      if (Object.keys(parent).length > 0) body.parent = parent;
+      // ── Class: backend expects a single "classSectionId" UUID ──
+      if (resolved.sectionId) body.classSectionId = resolved.sectionId;
+      // ── Parent: backend expects flat top-level fields, not nested ──
+      // parentName is required — prefer fatherName, fall back to motherName
+      const parentName = row.fatherName || row.motherName || '';
+      if (parentName)           body.parentName       = parentName;
+      if (row.parentPhone)      body.parentPhone      = row.parentPhone;
+      if (row.parentEmail)      body.parentEmail      = row.parentEmail;
+      if (row.parentOccupation) body.parentOccupation = row.parentOccupation;
 
       if (!row.name || !row.admissionNumber) return { index:i, row, body, resolved, validationErr:'Missing Name or Admission Number' };
       if (!row.parentPhone)                  return { index:i, row, body, resolved, validationErr:'Missing Parent Phone' };
+      if (!parentName)                       return { index:i, row, body, resolved, validationErr:'Missing Parent Name (Father\'s Name or Mother\'s Name required)' };
 
       return { index:i, row, body, resolved };
     });

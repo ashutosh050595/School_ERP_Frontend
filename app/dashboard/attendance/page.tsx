@@ -46,10 +46,10 @@ function MarkAttendance() {
     setLoading(true); setLoaded(false);
     try {
       const [sr, ar] = await Promise.all([
-        studentsApi.getAll({ classId:filters.classId, sectionId:filters.sectionId||undefined, limit:200 }),
-        attendanceApi.getByDate({ classId:filters.classId, sectionId:filters.sectionId||undefined, date:filters.date }),
+        studentsApi.getAll({ classId:filters.classId, classSectionId:filters.sectionId||undefined, limit:200 }),
+        filters.sectionId ? attendanceApi.getByDate({ classSectionId:filters.sectionId, date:filters.date }) : Promise.resolve({ data: { data: [] } }),
       ]);
-      const studs: any[] = sr.data.data?.students||[];
+      const studs: any[] = Array.isArray(sr.data.data) ? sr.data.data : [];
       const existing: any[] = ar.data.data||[];
       setStudents(studs);
       const map: Record<string,any> = {};
@@ -72,12 +72,16 @@ function MarkAttendance() {
   const setStatus = (id:string,status:Status) => setRecords(p=>({...p,[id]:{...p[id],status}}));
 
   const save = async () => {
+    if (!filters.sectionId) return toast.error('Select a section to save attendance');
     setSaving(true);
     try {
-      await attendanceApi.mark({ date:filters.date, classId:filters.classId, sectionId:filters.sectionId||undefined,
-        records: students.map(s=>({studentId:s.id,...records[s.id]})) });
+      await attendanceApi.mark({
+        date: filters.date,
+        classSectionId: filters.sectionId,
+        records: students.map(s => ({ studentId: s.id, status: records[s.id]?.status || 'PRESENT', remark: records[s.id]?.remark || '' })),
+      });
       toast.success('Attendance saved!');
-    } catch(err:any){ toast.error(err.response?.data?.message||'Failed'); }
+    } catch(err:any){ toast.error(err.response?.data?.message||'Failed to save'); }
     finally{ setSaving(false); }
   };
 
@@ -158,7 +162,7 @@ function AttendanceReport() {
     if(!filters.classId||!filters.from||!filters.to) return toast.error('Fill all fields');
     setLoading(true);
     try {
-      const r = await attendanceApi.getReport({classId:filters.classId,sectionId:filters.sectionId||undefined,from:filters.from,to:filters.to});
+      const r = await attendanceApi.getReport({classSectionId:filters.sectionId||undefined,from:filters.from,to:filters.to});
       setReport(r.data.data||[]);
     } catch { toast.error('Failed'); }
     finally { setLoading(false); }

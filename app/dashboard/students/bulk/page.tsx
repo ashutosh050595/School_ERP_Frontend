@@ -374,101 +374,67 @@ export default function BulkUploadPage() {
     if (step === 4 && rows.length > 0) { resolveClasses(rows); loadExistingAdmNos(); }
   }, [step, rows]); // eslint-disable-line
 
-  // ── Speed presets (ms between requests)
+  type RowResult = { row:number; name:string; admNo:string; status:'success'|'error'|'skip'; message:string; };
+
+  // ── Concurrency presets
   const SPEEDS = [
-    { label:'Slow (safe)',   ms:1200, desc:'1.2s gap — recommended for 50+ students' },
-    { label:'Normal',        ms:700,  desc:'0.7s gap — good for up to 50 students' },
-    { label:'Fast',          ms:350,  desc:'0.35s gap — small batches only (<20)' },
+    { label:'Safe (1×)',    concurrency:1,  delay:800, desc:'1 at a time — most reliable' },
+    { label:'Normal (3×)',  concurrency:3,  delay:400, desc:'3 concurrent — good balance' },
+    { label:'Fast (10×)',   concurrency:10, delay:100, desc:'10 concurrent — for 500+ students' },
+    { label:'Turbo (25×)',  concurrency:25, delay:0,   desc:'25 concurrent — 2000 students fast' },
   ];
-  const [speedIdx,   setSpeedIdx]   = useState(0); // default: Slow
-  const [paused,     setPaused]     = useState(false);
-  const [rateLimited,setRateLimited]= useState(false);
-  const [currentRow, setCurrentRow] = useState(0);
-  const abortRef = useRef(false);
-  const pauseRef = useRef(false);
+  const [speedIdx,    setSpeedIdx]    = useState(1);
+  const [paused,      setPaused]      = useState(false);
+  const [rateLimited, setRateLimited] = useState(false);
+  const [currentRow,  setCurrentRow]  = useState(0);
+  const abortRef  = useRef(false);
+  const pauseRef  = useRef(false);
 
   const stopImport = () => { abortRef.current = true; setPaused(false); };
 
-  // Retry a request up to maxRetries times on 429, with exponential backoff
-  const withRetry = async (fn: () => Promise<any>, maxRetries = 4): Promise<any> => {
+  const withRetry = async (fn: () => Promise<any>, maxRetries = 3): Promise<any> => {
     let lastErr: any;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      try {
-        const result = await fn();
-        setRateLimited(false);
-        return result;
-      } catch(err: any) {
+      try { const r = await fn(); setRateLimited(false); return r; }
+      catch(err: any) {
         lastErr = err;
         const status = err?.response?.status;
-        // 429 = rate limited, 503 = server busy — wait and retry
         if ((status === 429 || status === 503) && attempt < maxRetries) {
-          const waitMs = Math.min(2000 * Math.pow(2, attempt), 16000); // 2s → 4s → 8s → 16s
+          const waitMs = Math.min(1500 * Math.pow(2, attempt), 12000);
           setRateLimited(true);
-          toast(`Rate limited — waiting ${waitMs/1000}s before retry ${attempt+1}/${maxRetries}…`, { icon:'⏳', id:'rate-limit', duration: waitMs });
+          toast(`Rate limited — waiting ${waitMs/1000}s…`, { icon:'⏳', id:'rl', duration: waitMs });
           await new Promise(r => setTimeout(r, waitMs));
           setRateLimited(false);
-          continue;
-        }
-        throw err;
+        } else throw err;
       }
     }
     throw lastErr;
   };
 
-  // ── Step 4: import rows
+  // ── Step 4: import rows — concurrent batch engine
   const runImport = async () => {
     setImporting(true);
     setProgress(0);
     setRateLimited(false);
-    abortRef.current = false;
-    pauseRef.current = false;
-    const res: RowResult[] = [];
+    abortRef.current  = false;
+    pauseRef.current  = false;
 
-    // Build class resolution — use pre-validated map, or re-resolve if empty
+    const preset = SPEEDS[speedIdx];
     let resolution = classResolution;
     if (Object.keys(resolution).length === 0) {
       resolution = await resolveClasses(rows) || {};
     }
 
-    const delay = SPEEDS[speedIdx].ms;
-
-    for (let i = 0; i < rows.length; i++) {
-      // Abort check
-      if (abortRef.current) {
-        toast('Import stopped.', { icon:'⛔' });
-        break;
-      }
-
-      // Pause: wait until unpaused
-      while (pauseRef.current) {
-        await new Promise(r => setTimeout(r, 300));
-        if (abortRef.current) break;
-      }
-      if (abortRef.current) break;
-
-      setCurrentRow(i + 1);
-      const row = rows[i];
-
-      // Use pre-resolved class/section (non-blocking — warn only, never fail)
-      const resolved  = resolution[i] || { classId:'', sectionId:'', warn:'' };
-      const classId   = resolved.classId;
-      const sectionId = resolved.sectionId;
-
-      // Check duplicate by admission number
+    // Build all job bodies upfront
+    type Job = { index: number; row: Record<string,string>; body: any; resolved: any; skip?: string; validationErr?: string; };
+    const jobs: Job[] = rows.map((row, i) => {
+      // Duplicate check
       if (existingAdmNos.has(row.admissionNumber)) {
-        res.push({ row:i+1, name:row.name||'—', admNo:row.admissionNumber, status:'skip', message:'Already exists — skipped' });
-        setProgress(Math.round(((i+1)/rows.length)*100));
-        setResults([...res]);
-        if (i < rows.length - 1) await new Promise(r => setTimeout(r, 50));
-        continue;
+        return { index:i, row, body:null, resolved:null, skip:'Already exists — skipped' };
       }
 
-      // Build body matching EXACTLY the working StudentForm body structure
-      // (same fields, same nesting — backend accepts this shape)
-      const body: any = {
-        name:            row.name,
-        admissionNumber: row.admissionNumber,
-      };
+      const resolved = resolution[i] || { classId:'', sectionId:'', warn:'' };
+      const body: any = { name: row.name, admissionNumber: row.admissionNumber };
       if (row.dob)            body.dob            = row.dob;
       if (row.gender)         body.gender         = row.gender;
       if (row.phone)          body.phone          = row.phone;
@@ -480,12 +446,8 @@ export default function BulkUploadPage() {
       if (row.nationality)    body.nationality    = row.nationality;
       if (row.aadharNumber)   body.aadharNumber   = row.aadharNumber;
       if (row.previousSchool) body.previousSchool = row.previousSchool;
-
-      // Class/section: send classId + sectionId (same as StudentForm — working)
-      if (classId)   body.classId   = classId;
-      if (sectionId) body.sectionId = sectionId;
-
-      // Parent block — same structure as StudentForm
+      if (resolved.classId)   body.classId        = resolved.classId;
+      if (resolved.sectionId) body.sectionId      = resolved.sectionId;
       const parent: any = {};
       if (row.parentPhone)      parent.primaryPhone     = row.parentPhone;
       if (row.fatherName)       parent.fatherName       = row.fatherName;
@@ -495,39 +457,66 @@ export default function BulkUploadPage() {
       if (row.emergencyContact) parent.emergencyContact = row.emergencyContact;
       if (Object.keys(parent).length > 0) body.parent = parent;
 
-      // Client-side validation
-      if (!body.name || !body.admissionNumber) {
-        res.push({ row:i+1, name:row.name||'—', admNo:row.admissionNumber||'—', status:'error', message:'Missing Name or Admission Number' });
-        setProgress(Math.round(((i+1)/rows.length)*100));
-        setResults([...res]);
-        continue;
-      }
-      if (!row.parentPhone) {
-        res.push({ row:i+1, name:row.name, admNo:row.admissionNumber, status:'error', message:'Missing Parent Phone (required)' });
-        setProgress(Math.round(((i+1)/rows.length)*100));
-        setResults([...res]);
-        continue;
-      }
+      if (!row.name || !row.admissionNumber) return { index:i, row, body, resolved, validationErr:'Missing Name or Admission Number' };
+      if (!row.parentPhone)                  return { index:i, row, body, resolved, validationErr:'Missing Parent Phone' };
 
+      return { index:i, row, body, resolved };
+    });
+
+    // Process one job
+    const processJob = async (job: Job): Promise<RowResult> => {
+      if (job.skip) return { row:job.index+1, name:job.row.name||'—', admNo:job.row.admissionNumber, status:'skip', message: job.skip };
+      if (job.validationErr) return { row:job.index+1, name:job.row.name||'—', admNo:job.row.admissionNumber||'—', status:'error', message: job.validationErr };
       try {
-        await withRetry(() => studentsApi.create(body));
-        const warn = resolved.warn ? ` · ⚠ ${resolved.warn}` : '';
-        res.push({ row:i+1, name:body.name, admNo:body.admissionNumber, status:'success', message:`Admitted${warn}` });
+        await withRetry(() => studentsApi.create(job.body));
+        const warn = job.resolved.warn ? ` · ⚠ ${job.resolved.warn}` : '';
+        return { row:job.index+1, name:job.body.name, admNo:job.body.admissionNumber, status:'success', message:`Admitted${warn}` };
       } catch(err: any) {
-        const status = err?.response?.status;
-        const data   = err?.response?.data;
-        let msg = data?.message || data?.error || data?.errors?.[0]?.message || `Error ${status||''}`;
-        if (status === 429) msg = 'Rate limited — try slower speed next time';
-        if (status === 404) msg = 'API route not found — check backend';
-        if (status === 409) msg = 'Admission number already exists';
-        res.push({ row:i+1, name:body.name, admNo:body.admissionNumber, status:'error', message: msg });
+        const s = err?.response?.status;
+        const d = err?.response?.data;
+        let msg = d?.message || d?.error || d?.errors?.[0]?.message || `Error ${s||''}`;
+        if (s === 429) msg = 'Rate limited';
+        if (s === 404) msg = 'Route not found';
+        if (s === 409) msg = 'Admission number already exists';
+        return { row:job.index+1, name:job.body.name, admNo:job.body.admissionNumber, status:'error', message: msg };
       }
+    };
 
-      setProgress(Math.round(((i+1)/rows.length)*100));
-      setResults([...res]);
+    // Concurrent batch runner
+    let completed = 0;
+    const orderedResults: RowResult[] = new Array(jobs.length);
 
-      // Delay between requests
-      if (i < rows.length - 1) await new Promise(r => setTimeout(r, delay));
+    const runBatch = async (batch: Job[]) => {
+      await Promise.all(batch.map(async (job) => {
+        if (abortRef.current) return;
+        while (pauseRef.current) {
+          await new Promise(r => setTimeout(r, 200));
+          if (abortRef.current) return;
+        }
+        const result = await processJob(job);
+        orderedResults[job.index] = result;
+        completed++;
+        setCurrentRow(completed);
+        setProgress(Math.round((completed / jobs.length) * 100));
+        // Update results array (keep order)
+        const filled = orderedResults.filter(Boolean);
+        setResults([...filled]);
+      }));
+    };
+
+    // Split into batches
+    const { concurrency, delay } = preset;
+    for (let i = 0; i < jobs.length; i += concurrency) {
+      if (abortRef.current) { toast('Import stopped.', { icon:'⛔' }); break; }
+      while (pauseRef.current) {
+        await new Promise(r => setTimeout(r, 300));
+        if (abortRef.current) break;
+      }
+      const batch = jobs.slice(i, i + concurrency);
+      await runBatch(batch);
+      if (delay > 0 && i + concurrency < jobs.length) {
+        await new Promise(r => setTimeout(r, delay));
+      }
     }
 
     setImporting(false);
@@ -536,23 +525,23 @@ export default function BulkUploadPage() {
     pauseRef.current = false;
     setPaused(false);
 
-    const ok  = res.filter(r => r.status === 'success').length;
-    const err = res.filter(r => r.status === 'error').length;
-    if (err === 0) toast.success(`All ${ok} students admitted!`);
-    else if (ok > 0) toast(`${ok} admitted, ${err} failed — see table for details`, { icon:'⚠️', duration:6000 });
-    else toast.error(`All ${err} rows failed — check errors below`);
+    const finalResults = orderedResults.filter(Boolean);
+    const ok   = finalResults.filter(r => r.status === 'success').length;
+    const err  = finalResults.filter(r => r.status === 'error').length;
+    const skip = finalResults.filter(r => r.status === 'skip').length;
+    if (err === 0) toast.success(`${ok} students admitted!${skip>0?` (${skip} skipped)`:''}`);
+    else toast(`${ok} admitted · ${err} failed · ${skip} skipped`, { icon:'⚠️', duration:8000 });
   };
-
-  type RowResult = { row:number; name:string; admNo:string; status:'success'|'error'|'skip'; message:string; };
 
   const successCount = results.filter(r => r.status === 'success').length;
   const errorCount   = results.filter(r => r.status === 'error').length;
   const skipCount    = results.filter(r => r.status === 'skip').length;
   const isDone       = !importing && results.length > 0 && (results.length === rows.length || abortRef.current);
 
-  // Estimated time remaining
+  // Estimated time remaining (concurrency-aware)
+  const preset = SPEEDS[speedIdx];
   const etaSec = importing && currentRow > 0
-    ? Math.round(((rows.length - currentRow) * SPEEDS[speedIdx].ms) / 1000)
+    ? Math.round(((rows.length - currentRow) / preset.concurrency) * (preset.delay + 300) / 1000)
     : 0;
 
   // ─────────────────────────────────────────────────────────────────
@@ -635,7 +624,7 @@ export default function BulkUploadPage() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5">
                             <span className="text-sm font-semibold text-slate-700">{f.label}</span>
-                            {f.required && <Lock className="w-3 h-3 text-primary-500" title="Required"/>}
+                            {f.required && <Lock className="w-3 h-3 text-primary-500"/>}
                           </div>
                           {f.hint && <p className="text-xs text-slate-400 mt-0.5 leading-tight">{f.hint}</p>}
                           <p className="text-xs text-primary-500 mt-1 font-mono">e.g. {f.example}</p>
@@ -750,21 +739,25 @@ export default function BulkUploadPage() {
             <div className="card p-4 space-y-3">
               <div className="flex items-center gap-2 mb-1">
                 <Info className="w-4 h-4 text-blue-600"/>
-                <p className="text-sm font-semibold text-slate-700">Import Speed</p>
+                <p className="text-sm font-semibold text-slate-700">Upload Speed</p>
+                <span className="text-xs text-slate-400 ml-auto">{rows.length} students to import</span>
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {SPEEDS.map((s, i) => (
                   <label key={i} className={`flex flex-col gap-1 p-3 rounded-xl border-2 cursor-pointer transition-all ${speedIdx===i?'border-primary-400 bg-primary-50':'border-slate-200 hover:border-slate-300'}`}>
                     <input type="radio" name="speed" checked={speedIdx===i} onChange={()=>setSpeedIdx(i)} className="hidden"/>
                     <span className="text-sm font-semibold text-slate-700">{s.label}</span>
                     <span className="text-xs text-slate-400">{s.desc}</span>
+                    <span className="text-xs text-primary-600 font-semibold mt-1">
+                      ~{Math.ceil(rows.length / s.concurrency * (s.delay + 300) / 1000)}s est.
+                    </span>
                   </label>
                 ))}
               </div>
               <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl">
                 <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5"/>
                 <p className="text-xs text-amber-700">
-                  <span className="font-semibold">Recommended: Slow (safe)</span> for 20+ students. The backend rate-limiter allows ~100 requests per 15 minutes. Faster speeds risk hitting this limit and triggering "Too many requests" errors. The importer will auto-retry on rate limits, but slower is more reliable.
+                  <span className="font-semibold">Turbo (25×)</span> sends 25 requests in parallel — fastest for 2000+ students but may trigger rate limiting. If you see many failures, switch to Normal or Safe and retry only the failed rows.
                 </p>
               </div>
             </div>

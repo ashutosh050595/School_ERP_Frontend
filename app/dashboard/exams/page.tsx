@@ -444,249 +444,377 @@ function TermDetail({ term, onClose }: any) {
 }
 
 // ─────────────────────────────────────────────────────────
-// Marks Entry — single subject view with Tab navigation + bulk upload
+// Marks Entry
 // ─────────────────────────────────────────────────────────
+// marks state: { [studentId]: { [subjectId]: string } }
+// When a specific subject is selected → only that subject's column shows.
+// When "All Subjects" is selected   → all subjects show as columns.
+// Template download and bulk upload respect the same mode.
+
 function MarksEntry() {
   const [terms, setTerms]       = useState<any[]>([]);
   const [classes, setClasses]   = useState<any[]>([]);
   const [sections, setSections] = useState<any[]>([]);
-  const [subjects, setSubjects] = useState<any[]>([]);
+  const [subjects, setSubjects] = useState<any[]>([]);   // all subjects for this term+class
   const [students, setStudents] = useState<any[]>([]);
-  const [marks, setMarks]       = useState<Record<string,string>>({});  // studentId → mark
-  const [filters, setFilters]   = useState({ termId:'', classId:'', sectionId:'', subjectId:'' });
+  const [marks, setMarks]       = useState<Record<string, Record<string, string>>>({});
+  const [filters, setFilters]   = useState({ termId: '', classId: '', sectionId: '', subjectId: '' });
   const [loading, setLoading]   = useState(false);
   const [saving, setSaving]     = useState(false);
-  const f = (k:string,v:string) => setFilters(p=>({...p,[k]:v}));
-
-  // Bulk upload state
   const [bulkErrors, setBulkErrors] = useState<any[]>([]);
-  const bulkInputRef = useRef<HTMLInputElement>(null);
+  const bulkRef = useRef<HTMLInputElement>(null);
 
-  const activeSubject = subjects.find((s:any) => s.id === filters.subjectId);
+  const f = (k: string, v: string) => setFilters(p => ({ ...p, [k]: v }));
+
+  // ALL = show all subjects; specific id = single subject mode
+  const allMode      = filters.subjectId === 'ALL' || filters.subjectId === '';
+  const classSubjects = subjects.filter((s: any) => !filters.classId || s.classId === filters.classId);
+  const activeSubjects: any[] = filters.subjectId && filters.subjectId !== 'ALL'
+    ? classSubjects.filter((s: any) => s.id === filters.subjectId)
+    : classSubjects;
 
   useEffect(() => {
-    examsApi.getTerms().then(r => setTerms(r.data.data||[])).catch(()=>{});
-    studentsApi.getClasses().then(r => setClasses(r.data.data||[])).catch(()=>{});
+    examsApi.getTerms().then(r => setTerms(r.data.data || [])).catch(() => {});
+    studentsApi.getClasses().then(r => setClasses(r.data.data || [])).catch(() => {});
   }, []);
-  useEffect(() => { if(filters.termId)  examsApi.getSubjects(filters.termId).then(r => setSubjects(r.data.data||[])).catch(()=>{}); setStudents([]); setMarks({}); }, [filters.termId]);
-  useEffect(() => { if(filters.classId) studentsApi.getSections(filters.classId).then(r => setSections(r.data.data||[])).catch(()=>{}); }, [filters.classId]);
-  useEffect(() => { setStudents([]); setMarks({}); setBulkErrors([]); }, [filters.subjectId]);
 
-  const classSubjects = subjects.filter((s:any) => !filters.classId || s.classId === filters.classId);
+  useEffect(() => {
+    setSubjects([]); setStudents([]); setMarks({}); setBulkErrors([]);
+    if (filters.termId) examsApi.getSubjects(filters.termId).then(r => setSubjects(r.data.data || [])).catch(() => {});
+  }, [filters.termId]);
+
+  useEffect(() => {
+    setSections([]); setStudents([]); setMarks({}); setBulkErrors([]);
+    if (filters.classId) studentsApi.getSections(filters.classId).then(r => setSections(r.data.data || [])).catch(() => {});
+  }, [filters.classId]);
+
+  useEffect(() => {
+    setStudents([]); setMarks({}); setBulkErrors([]);
+  }, [filters.subjectId, filters.sectionId]);
 
   const loadStudents = async () => {
-    if (!filters.classId || !filters.termId || !filters.subjectId) return toast.error('Select term, class and subject');
+    if (!filters.classId || !filters.termId) return toast.error('Select term and class');
+    if (activeSubjects.length === 0) return toast.error('No subjects found for this class and term');
     setLoading(true);
     try {
-      const r = await studentsApi.getAll({ classId:filters.classId, classSectionId:filters.sectionId||undefined, limit:200, orderBy:'rollNumber' });
-      const studs = Array.isArray(r.data.data) ? r.data.data : [];
+      const r = await studentsApi.getAll({ classId: filters.classId, classSectionId: filters.sectionId || undefined, limit: 200 });
+      const studs: any[] = Array.isArray(r.data.data) ? r.data.data : [];
       setStudents(studs);
-      const m: Record<string,string> = {};
-      studs.forEach((s:any) => { m[s.id] = ''; });
+      const m: Record<string, Record<string, string>> = {};
+      studs.forEach((s: any) => {
+        m[s.id] = {};
+        activeSubjects.forEach((sub: any) => { m[s.id][sub.id] = ''; });
+      });
       setMarks(m);
     } catch { toast.error('Failed to load students'); }
     finally { setLoading(false); }
   };
 
+  const setMark = (studentId: string, subjectId: string, value: string) => {
+    setMarks(p => ({ ...p, [studentId]: { ...p[studentId], [subjectId]: value } }));
+  };
+
   const saveMarks = async () => {
-    if (!activeSubject) return;
-    const entries = students
-      .filter((s:any) => marks[s.id] !== '')
-      .map((s:any) => ({ studentId: s.id, subjectId: activeSubject.id, marksObtained: Number(marks[s.id]), isAbsent: false }));
-    if (entries.length === 0) return toast.error('No marks to save');
     setSaving(true);
+    const toSave: Array<{ subjectId: string; marks: Array<{ studentId: string; marksObtained: number }> }> = [];
+    activeSubjects.forEach((sub: any) => {
+      const entries = students
+        .filter((s: any) => marks[s.id]?.[sub.id] !== '' && marks[s.id]?.[sub.id] !== undefined)
+        .map((s: any) => ({ studentId: s.id, marksObtained: Number(marks[s.id][sub.id]) }));
+      if (entries.length > 0) toSave.push({ subjectId: sub.id, marks: entries });
+    });
+    if (toSave.length === 0) { setSaving(false); return toast.error('No marks entered'); }
     try {
-      await examsApi.enterMarks({ subjectId: activeSubject.id, marks: entries });
-      toast.success(`Marks saved for ${activeSubject.subjectName}!`);
-    } catch(err:any) { toast.error(err.response?.data?.message||'Failed'); }
+      await Promise.all(toSave.map(payload => examsApi.enterMarks(payload)));
+      toast.success('Marks saved successfully!');
+    } catch (err: any) { toast.error(err.response?.data?.message || 'Failed to save marks'); }
     finally { setSaving(false); }
   };
 
-  // ── Download template ──
+  // ── Template download ──────────────────────────────────
   const downloadTemplate = async () => {
-    if (!activeSubject || students.length === 0) return toast.error('Load students first');
+    if (students.length === 0) return toast.error('Load students first');
+    if (activeSubjects.length === 0) return toast.error('No subjects selected');
     const XLSX = await import('xlsx');
-    const wsData = [
-      [`Subject: ${activeSubject.subjectName}`, `Max Marks: ${activeSubject.maxMarks}`, `Pass Marks: ${activeSubject.passMarks}`],
-      ['Admission No', 'Student Name', 'Roll No', `Marks Obtained (Max: ${activeSubject.maxMarks})`],
-      ...students.map((s:any) => [s.admissionNumber, s.name, s.rollNumber||'', '']),
-    ];
     const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet(wsData);
-    ws['!cols'] = [{wch:15},{wch:30},{wch:10},{wch:20}];
-    XLSX.utils.book_append_sheet(wb, ws, 'Marks');
-    XLSX.writeFile(wb, `Marks_${activeSubject.subjectName}_${filters.classId}.xlsx`);
+
+    if (activeSubjects.length === 1) {
+      // Single subject → one sheet
+      const sub = activeSubjects[0];
+      const data = [
+        ['Subject', sub.subjectName, 'Max Marks', sub.maxMarks, 'Pass Marks', sub.passMarks],
+        ['Admission No', 'Student Name', 'Roll No', 'Marks Obtained (leave blank if absent)'],
+        ...students.map((s: any) => [s.admissionNumber, s.name, s.rollNumber || '', '']),
+      ];
+      const ws = XLSX.utils.aoa_to_sheet(data);
+      ws['!cols'] = [{ wch: 16 }, { wch: 30 }, { wch: 10 }, { wch: 28 }];
+      XLSX.utils.book_append_sheet(wb, ws, sub.subjectName.slice(0, 31));
+    } else {
+      // All subjects → one sheet per subject
+      activeSubjects.forEach((sub: any) => {
+        const data = [
+          ['Subject', sub.subjectName, 'Max Marks', sub.maxMarks, 'Pass Marks', sub.passMarks],
+          ['Admission No', 'Student Name', 'Roll No', 'Marks Obtained (leave blank if absent)'],
+          ...students.map((s: any) => [s.admissionNumber, s.name, s.rollNumber || '', '']),
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(data);
+        ws['!cols'] = [{ wch: 16 }, { wch: 30 }, { wch: 10 }, { wch: 28 }];
+        XLSX.utils.book_append_sheet(wb, ws, sub.subjectName.slice(0, 31));
+      });
+    }
+
+    const className = classes.find((c: any) => c.id === filters.classId)?.name || 'Class';
+    const termName  = terms.find((t: any) => t.id === filters.termId)?.name || 'Term';
+    XLSX.writeFile(wb, 'Marks_' + termName + '_' + className + '.xlsx');
+    toast.success('Template downloaded');
   };
 
-  // ── Upload bulk marks ──
+  // ── Bulk upload ────────────────────────────────────────
   const uploadBulkMarks = async (file: File) => {
-    if (!activeSubject || students.length === 0) return toast.error('Load students first');
+    if (students.length === 0) return toast.error('Load students first');
+    if (activeSubjects.length === 0) return toast.error('No subjects selected');
     const XLSX = await import('xlsx');
     const ab = await file.arrayBuffer();
     const wb = XLSX.read(ab);
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header:1, defval:'' });
-    // Find header row (has "Admission No")
-    let headerIdx = rows.findIndex(r => r.some((c:any) => String(c).toLowerCase().includes('admission')));
-    if (headerIdx === -1) headerIdx = 1;
-    const dataRows = rows.slice(headerIdx + 1).filter(r => r[0]);
+    const admMap = new Map(students.map((s: any) => [String(s.admissionNumber).trim(), s]));
+    const newMarks: Record<string, Record<string, string>> = JSON.parse(JSON.stringify(marks));
+    const allErrors: any[] = [];
 
-    const admMap = new Map(students.map((s:any) => [s.admissionNumber, s]));
-    const newMarks: Record<string,string> = { ...marks };
-    const errors: any[] = [];
-    const maxMarks = activeSubject.maxMarks;
+    // Process each sheet — each sheet corresponds to one subject by name
+    wb.SheetNames.forEach((sheetName: string) => {
+      // Find matching subject (sheet name matches subjectName, case-insensitive)
+      const matchedSub = activeSubjects.find(
+        (s: any) => s.subjectName.toLowerCase().trim() === sheetName.toLowerCase().trim()
+      ) || (activeSubjects.length === 1 ? activeSubjects[0] : null);
 
-    dataRows.forEach((row, i) => {
-      const admNo    = String(row[0]).trim();
-      const markVal  = Number(row[3]);
-      const student  = admMap.get(admNo);
-      if (!student) { errors.push({ row: headerIdx+i+2, admNo, issue: 'Admission number not found in loaded students' }); return; }
-      if (isNaN(markVal) || String(row[3]).trim() === '') return; // skip empty
-      if (markVal > maxMarks) { errors.push({ row: headerIdx+i+2, admNo, name: student.name, marks: markVal, issue: `Marks ${markVal} exceeds maximum ${maxMarks}` }); return; }
-      if (markVal < 0) { errors.push({ row: headerIdx+i+2, admNo, name: student.name, marks: markVal, issue: 'Marks cannot be negative' }); return; }
-      newMarks[student.id] = String(markVal);
+      if (!matchedSub) {
+        allErrors.push({ row: '-', admNo: '-', name: sheetName, marks: '-', issue: 'Sheet "' + sheetName + '" does not match any subject name' });
+        return;
+      }
+
+      const ws = wb.Sheets[sheetName];
+      const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+
+      // Find header row — first row containing "admission"
+      let headerIdx = rows.findIndex((r: any[]) => r.some((c: any) => String(c).toLowerCase().includes('admission')));
+      if (headerIdx === -1) headerIdx = 1;
+      const dataRows = rows.slice(headerIdx + 1).filter((r: any[]) => r[0] !== '' && r[0] !== null && r[0] !== undefined);
+
+      dataRows.forEach((row: any[], i: number) => {
+        const admNo   = String(row[0]).trim();
+        const rawMark = String(row[3]).trim();
+        const student = admMap.get(admNo);
+        const lineNum = headerIdx + i + 2;
+
+        if (!student) {
+          allErrors.push({ row: lineNum, admNo, subject: matchedSub.subjectName, name: '—', marks: rawMark, issue: 'Admission number not found' });
+          return;
+        }
+        if (rawMark === '' || rawMark === '-') return; // blank = skip, not an error
+        const markVal = Number(rawMark);
+        if (isNaN(markVal)) {
+          allErrors.push({ row: lineNum, admNo, subject: matchedSub.subjectName, name: student.name, marks: rawMark, issue: 'Not a valid number' });
+          return;
+        }
+        if (markVal < 0) {
+          allErrors.push({ row: lineNum, admNo, subject: matchedSub.subjectName, name: student.name, marks: markVal, issue: 'Marks cannot be negative' });
+          return;
+        }
+        if (markVal > matchedSub.maxMarks) {
+          allErrors.push({ row: lineNum, admNo, subject: matchedSub.subjectName, name: student.name, marks: markVal, issue: 'Exceeds max marks (' + matchedSub.maxMarks + ')' });
+          return;
+        }
+        if (!newMarks[student.id]) newMarks[student.id] = {};
+        newMarks[student.id][matchedSub.id] = String(markVal);
+      });
     });
 
-    setBulkErrors(errors);
+    setBulkErrors(allErrors);
     setMarks(newMarks);
-    const loaded = dataRows.length - errors.length;
-    if (errors.length > 0) {
-      toast.error(`${errors.length} validation error(s) found — review below`);
+    if (allErrors.length > 0) {
+      toast.error(allErrors.length + ' validation error(s) — check the table below');
     } else {
-      toast.success(`${loaded} student marks loaded from file — click Save to submit`);
+      toast.success('Marks loaded — review and click Save');
     }
-    if (bulkInputRef.current) bulkInputRef.current.value = '';
+    if (bulkRef.current) bulkRef.current.value = '';
   };
+
+  const filledCount = students.filter((s: any) =>
+    activeSubjects.some((sub: any) => marks[s.id]?.[sub.id] !== '' && marks[s.id]?.[sub.id] !== undefined)
+  ).length;
 
   return (
     <div className="space-y-4">
-      {/* Filters */}
+
+      {/* ── Filter bar ── */}
       <div className="card p-4 flex flex-wrap gap-3 items-end">
-        <div><label className="form-label">Exam Term</label>
-          <select value={filters.termId} onChange={e=>{f('termId',e.target.value);}} className="form-select w-40">
-            <option value="">Select</option>{terms.map((t:any)=><option key={t.id} value={t.id}>{t.name}</option>)}
-          </select></div>
-        <div><label className="form-label">Class</label>
-          <select value={filters.classId} onChange={e=>f('classId',e.target.value)} className="form-select w-32">
-            <option value="">Select</option>{classes.map((c:any)=><option key={c.id} value={c.id}>{c.name}</option>)}
-          </select></div>
-        <div><label className="form-label">Section</label>
-          <select value={filters.sectionId} onChange={e=>f('sectionId',e.target.value)} className="form-select w-28" disabled={!sections.length}>
-            <option value="">All</option>{sections.map((s:any)=><option key={s.id} value={s.id}>{s.section}</option>)}
-          </select></div>
-        <div><label className="form-label">Subject</label>
-          <select value={filters.subjectId} onChange={e=>f('subjectId',e.target.value)} className="form-select w-44" disabled={!classSubjects.length}>
-            <option value="">Select Subject</option>{classSubjects.map((s:any)=><option key={s.id} value={s.id}>{s.subjectName}</option>)}
-          </select></div>
-        <button onClick={loadStudents} className="btn-primary" disabled={!filters.subjectId||!filters.termId||!filters.classId}>
-          Load Students
+        <div>
+          <label className="form-label">Exam Term</label>
+          <select value={filters.termId} onChange={e => f('termId', e.target.value)} className="form-select w-40">
+            <option value="">Select term</option>
+            {terms.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="form-label">Class</label>
+          <select value={filters.classId} onChange={e => f('classId', e.target.value)} className="form-select w-32">
+            <option value="">Select class</option>
+            {classes.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="form-label">Section</label>
+          <select value={filters.sectionId} onChange={e => f('sectionId', e.target.value)} className="form-select w-28" disabled={!sections.length}>
+            <option value="">All</option>
+            {sections.map((s: any) => <option key={s.id} value={s.id}>{s.section}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="form-label">Subject</label>
+          <select value={filters.subjectId} onChange={e => f('subjectId', e.target.value)} className="form-select w-48" disabled={!classSubjects.length}>
+            <option value="ALL">All Subjects</option>
+            {classSubjects.map((s: any) => <option key={s.id} value={s.id}>{s.subjectName}</option>)}
+          </select>
+        </div>
+        <button
+          onClick={loadStudents}
+          disabled={!filters.termId || !filters.classId || loading}
+          className="btn-primary"
+        >
+          {loading ? 'Loading…' : 'Load Students'}
         </button>
-        {students.length > 0 && activeSubject && (
+        {students.length > 0 && (
           <>
-            <button onClick={downloadTemplate} className="btn-ghost border border-slate-300 text-slate-600 hover:bg-slate-50 text-sm py-2 px-3">
+            <button onClick={downloadTemplate} className="btn-ghost border border-slate-300 text-slate-700 hover:bg-slate-50 text-sm py-2 px-3">
               ⬇ Template
             </button>
             <label className="btn-ghost border border-blue-300 text-blue-600 hover:bg-blue-50 text-sm py-2 px-3 cursor-pointer">
-              ⬆ Bulk Upload
-              <input ref={bulkInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={e => e.target.files?.[0] && uploadBulkMarks(e.target.files[0])}/>
+              ⬆ Upload Marks
+              <input ref={bulkRef} type="file" accept=".xlsx,.xls" className="hidden"
+                onChange={e => { if (e.target.files?.[0]) uploadBulkMarks(e.target.files[0]); }} />
             </label>
-            <button onClick={saveMarks} disabled={saving} className="btn-success ml-auto">
-              {saving ? 'Saving…' : `Save Marks — ${activeSubject.subjectName}`}
+            <button onClick={saveMarks} disabled={saving || filledCount === 0} className="btn-success ml-auto">
+              {saving ? 'Saving…' : 'Save Marks (' + filledCount + ' students)'}
             </button>
           </>
         )}
       </div>
 
-      {/* Validation errors from bulk upload */}
+      {/* ── Validation errors ── */}
       {bulkErrors.length > 0 && (
         <div className="card border-red-200 bg-red-50 p-4 space-y-2">
-          <p className="text-sm font-bold text-red-700">⚠ {bulkErrors.length} validation error(s) — these rows were NOT loaded:</p>
-          <div className="overflow-auto max-h-48">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-bold text-red-700">⚠ {bulkErrors.length} validation error(s) — these rows were skipped:</p>
+            <button onClick={() => setBulkErrors([])} className="text-xs text-red-400 hover:text-red-600">Dismiss</button>
+          </div>
+          <div className="overflow-auto max-h-52 rounded-lg border border-red-200">
             <table className="tbl text-xs">
-              <thead><tr><th>Row</th><th>Adm. No</th><th>Student</th><th>Marks</th><th>Issue</th></tr></thead>
-              <tbody>{bulkErrors.map((e,i) => (
-                <tr key={i} className="bg-red-50">
-                  <td>{e.row}</td>
-                  <td className="font-mono">{e.admNo}</td>
-                  <td>{e.name||'—'}</td>
-                  <td className="font-bold text-red-600">{e.marks??'—'}</td>
-                  <td className="text-red-600">{e.issue}</td>
-                </tr>
-              ))}</tbody>
+              <thead><tr><th>Row</th><th>Subject</th><th>Adm. No</th><th>Student</th><th>Marks</th><th>Issue</th></tr></thead>
+              <tbody>
+                {bulkErrors.map((e: any, i: number) => (
+                  <tr key={i}>
+                    <td>{e.row}</td>
+                    <td>{e.subject || '—'}</td>
+                    <td className="font-mono">{e.admNo}</td>
+                    <td>{e.name || '—'}</td>
+                    <td className="font-bold text-red-600">{e.marks ?? '—'}</td>
+                    <td className="text-red-600">{e.issue}</td>
+                  </tr>
+                ))}
+              </tbody>
             </table>
           </div>
         </div>
       )}
 
-      {/* Subject info banner */}
-      {activeSubject && students.length > 0 && (
-        <div className="card p-3 flex items-center gap-4 bg-primary-50 border border-primary-200">
-          <BookOpen className="w-5 h-5 text-primary-600 flex-shrink-0"/>
+      {/* ── Mode banner ── */}
+      {students.length > 0 && (
+        <div className="card p-3 flex items-center gap-3 bg-primary-50 border border-primary-200 text-sm">
+          <BookOpen className="w-4 h-4 text-primary-600 flex-shrink-0" />
           <div className="flex-1">
-            <p className="text-sm font-bold text-primary-800">{activeSubject.subjectName}</p>
-            <p className="text-xs text-primary-600">Max: {activeSubject.maxMarks} · Pass: {activeSubject.passMarks} · {students.length} students</p>
+            {activeSubjects.length === 1
+              ? <span className="font-semibold text-primary-800">{activeSubjects[0].subjectName}</span>
+              : <span className="font-semibold text-primary-800">All Subjects ({activeSubjects.length})</span>
+            }
+            <span className="text-primary-500 ml-2 text-xs">· {students.length} students · Press Tab to move between fields</span>
           </div>
-          <p className="text-xs text-primary-500">Press Tab to move between fields</p>
+          {activeSubjects.length === 1 && (
+            <span className="text-xs text-primary-600 font-medium bg-primary-100 px-2 py-1 rounded-lg">
+              Max: {activeSubjects[0].maxMarks} · Pass: {activeSubjects[0].passMarks}
+            </span>
+          )}
         </div>
       )}
 
-      {loading && <div className="card p-8 text-center"><div className="w-6 h-6 border-2 border-primary-600 border-t-transparent rounded-full animate-spin mx-auto"/></div>}
+      {/* ── Marks table ── */}
+      {loading && (
+        <div className="card p-8 text-center">
+          <div className="w-6 h-6 border-2 border-primary-600 border-t-transparent rounded-full animate-spin mx-auto" />
+        </div>
+      )}
 
-      {!loading && students.length > 0 && activeSubject && (
-        <div className="card overflow-hidden">
+      {!loading && students.length > 0 && activeSubjects.length > 0 && (
+        <div className="card overflow-auto">
           <table className="tbl">
             <thead>
               <tr>
                 <th className="w-10">#</th>
                 <th>Student</th>
-                <th className="w-28">Adm. No</th>
-                <th className="w-20">Roll No</th>
-                <th className="w-40">Marks <span className="font-normal text-slate-400">/ {activeSubject.maxMarks}</span></th>
-                <th className="w-24">Status</th>
+                <th className="w-24">Roll No</th>
+                {activeSubjects.map((sub: any) => (
+                  <th key={sub.id} className="min-w-36">
+                    <div>{sub.subjectName}</div>
+                    <div className="text-xs font-normal text-slate-400">Max {sub.maxMarks} · Pass {sub.passMarks}</div>
+                  </th>
+                ))}
+                <th className="w-20">Status</th>
               </tr>
             </thead>
             <tbody>
-              {students.map((s:any, i:number) => {
-                const val     = marks[s.id] ?? '';
-                const numVal  = Number(val);
-                const isEmpty = val === '';
-                const isOver  = !isEmpty && numVal > activeSubject.maxMarks;
-                const isPassed = !isEmpty && !isOver && numVal >= activeSubject.passMarks;
+              {students.map((s: any, si: number) => {
+                // Determine row-level status based on all active subjects
+                const allFilled  = activeSubjects.every((sub: any) => marks[s.id]?.[sub.id] !== '' && marks[s.id]?.[sub.id] !== undefined);
+                const anyOver    = activeSubjects.some((sub: any) => {
+                  const v = marks[s.id]?.[sub.id];
+                  return v !== '' && v !== undefined && Number(v) > sub.maxMarks;
+                });
+                const allPassed  = allFilled && !anyOver && activeSubjects.every((sub: any) => Number(marks[s.id]?.[sub.id]) >= sub.passMarks);
+                const anyFilled  = activeSubjects.some((sub: any) => marks[s.id]?.[sub.id] !== '' && marks[s.id]?.[sub.id] !== undefined);
+
                 return (
-                  <tr key={s.id} className={isOver ? 'bg-red-50' : ''}>
-                    <td className="text-xs text-slate-400 text-right">{i+1}</td>
+                  <tr key={s.id} className={anyOver ? 'bg-red-50/60' : ''}>
+                    <td className="text-xs text-slate-400 text-right">{si + 1}</td>
                     <td>
                       <p className="font-medium text-sm text-slate-800">{s.name}</p>
-                      <p className="text-xs text-slate-400">{s.admissionNumber}</p>
+                      <p className="text-xs text-slate-400 font-mono">{s.admissionNumber}</p>
                     </td>
-                    <td className="font-mono text-xs">{s.admissionNumber}</td>
-                    <td className="text-sm text-slate-500">{s.rollNumber||'—'}</td>
-                    <td className="p-2">
-                      <input
-                        type="number"
-                        min={0}
-                        max={activeSubject.maxMarks}
-                        value={val}
-                        onChange={e => {
-                          const v = e.target.value;
-                          setMarks(p => ({...p, [s.id]: v}));
-                        }}
-                        onKeyDown={e => {
-                          if (e.key === 'Tab') {
-                            // Tab naturally moves to next input — just let it flow
-                            return;
-                          }
-                        }}
-                        className={`form-input text-center py-1.5 text-sm ${isOver ? 'border-red-400 bg-red-50 focus:ring-red-300' : ''}`}
-                        placeholder="—"
-                        tabIndex={i + 1}
-                      />
-                    </td>
+                    <td className="text-sm text-slate-500">{s.rollNumber || '—'}</td>
+                    {activeSubjects.map((sub: any, subIdx: number) => {
+                      const val    = marks[s.id]?.[sub.id] ?? '';
+                      const numVal = Number(val);
+                      const isOver = val !== '' && numVal > sub.maxMarks;
+                      return (
+                        <td key={sub.id} className="p-1.5">
+                          <input
+                            type="number"
+                            min={0}
+                            max={sub.maxMarks}
+                            value={val}
+                            onChange={e => setMark(s.id, sub.id, e.target.value)}
+                            tabIndex={si * activeSubjects.length + subIdx + 1}
+                            placeholder="—"
+                            className={'form-input text-center py-1.5 text-sm w-full ' + (isOver ? 'border-red-400 bg-red-50 focus:ring-red-300' : '')}
+                          />
+                          {isOver && <p className="text-xs text-red-500 text-center mt-0.5">Max {sub.maxMarks}</p>}
+                        </td>
+                      );
+                    })}
                     <td>
-                      {isEmpty ? <span className="text-xs text-slate-300">—</span>
-                      : isOver ? <span className="badge badge-red">Exceeds max</span>
-                      : isPassed ? <span className="badge badge-green">Pass</span>
-                      : <span className="badge badge-red">Fail</span>}
+                      {!anyFilled ? <span className="text-xs text-slate-300">—</span>
+                      : anyOver   ? <span className="badge badge-red">Over limit</span>
+                      : allPassed && allFilled ? <span className="badge badge-green">Pass</span>
+                      : allFilled ? <span className="badge badge-red">Fail</span>
+                      : <span className="badge badge-gray">Partial</span>}
                     </td>
                   </tr>
                 );
@@ -697,7 +825,9 @@ function MarksEntry() {
       )}
 
       {!loading && students.length === 0 && (
-        <div className="card p-12 text-center text-slate-400 text-sm">Select exam term, class, subject and click Load Students</div>
+        <div className="card p-12 text-center text-slate-400 text-sm">
+          Select exam term, class and click Load Students
+        </div>
       )}
     </div>
   );

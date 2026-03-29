@@ -492,5 +492,3 @@ function AttendanceApprovals() {
     </div>
   );
 }
-
-}

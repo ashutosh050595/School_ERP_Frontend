@@ -1,4 +1,5 @@
 'use client';
+import { useRef } from 'react';
 import { X, Loader2, AlertCircle, ChevronLeft, ChevronRight, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 

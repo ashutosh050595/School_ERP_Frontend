@@ -47,11 +47,13 @@ export const studentsApi = {
 
 // ─── Attendance ────────────────────────────────────────
 export const attendanceApi = {
-  getByDate:  (p:any) => api.get('/attendance',{params:p}),
-  mark:       (d:any) => api.post('/attendance',d),
-  getReport:  (p:any) => api.get('/attendance/report',{params:p}),
-  getSummary: (p?:any) => api.get('/attendance/summary',{params:p}),
-  getStudent: (admNo:string,p?:any) => api.get(`/attendance/student/${admNo}`,{params:p}),
+  getByDate:        (p:any) => api.get('/attendance',{params:p}),
+  mark:             (d:any) => api.post('/attendance',d),
+  getReport:        (p:any) => api.get('/attendance/report',{params:p}),
+  getSummary:       (p?:any) => api.get('/attendance/summary',{params:p}),
+  getStudent:       (admNo:string,p?:any) => api.get(`/attendance/student/${admNo}`,{params:p}),
+  getChangeRequests:(status?:string) => api.get('/attendance/change-requests',{params:status?{status}:{}}),
+  reviewRequest:    (d:any) => api.post('/attendance/change-requests/review',d),
 };
 
 // ─── Fees ──────────────────────────────────────────────

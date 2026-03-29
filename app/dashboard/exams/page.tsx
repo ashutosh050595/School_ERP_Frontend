@@ -497,7 +497,7 @@ function MarksEntry() {
     setSaving(true);
     try {
       await examsApi.enterMarks({ subjectId: activeSubject.id, marks: entries });
-      toast.success(\`Marks saved for \${activeSubject.subjectName}!\`);
+      toast.success(`Marks saved for ${activeSubject.subjectName}!`);
     } catch(err:any) { toast.error(err.response?.data?.message||'Failed'); }
     finally { setSaving(false); }
   };
@@ -507,15 +507,15 @@ function MarksEntry() {
     if (!activeSubject || students.length === 0) return toast.error('Load students first');
     const XLSX = await import('xlsx');
     const wsData = [
-      [\`Subject: \${activeSubject.subjectName}\`, \`Max Marks: \${activeSubject.maxMarks}\`, \`Pass Marks: \${activeSubject.passMarks}\`],
-      ['Admission No', 'Student Name', 'Roll No', \`Marks Obtained (Max: \${activeSubject.maxMarks})\`],
+      [`Subject: ${activeSubject.subjectName}`, `Max Marks: ${activeSubject.maxMarks}`, `Pass Marks: ${activeSubject.passMarks}`],
+      ['Admission No', 'Student Name', 'Roll No', `Marks Obtained (Max: ${activeSubject.maxMarks})`],
       ...students.map((s:any) => [s.admissionNumber, s.name, s.rollNumber||'', '']),
     ];
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.aoa_to_sheet(wsData);
     ws['!cols'] = [{wch:15},{wch:30},{wch:10},{wch:20}];
     XLSX.utils.book_append_sheet(wb, ws, 'Marks');
-    XLSX.writeFile(wb, \`Marks_\${activeSubject.subjectName}_\${filters.classId}.xlsx\`);
+    XLSX.writeFile(wb, `Marks_${activeSubject.subjectName}_${filters.classId}.xlsx`);
   };
 
   // ── Upload bulk marks ──
@@ -542,7 +542,7 @@ function MarksEntry() {
       const student  = admMap.get(admNo);
       if (!student) { errors.push({ row: headerIdx+i+2, admNo, issue: 'Admission number not found in loaded students' }); return; }
       if (isNaN(markVal) || String(row[3]).trim() === '') return; // skip empty
-      if (markVal > maxMarks) { errors.push({ row: headerIdx+i+2, admNo, name: student.name, marks: markVal, issue: \`Marks \${markVal} exceeds maximum \${maxMarks}\` }); return; }
+      if (markVal > maxMarks) { errors.push({ row: headerIdx+i+2, admNo, name: student.name, marks: markVal, issue: `Marks ${markVal} exceeds maximum ${maxMarks}` }); return; }
       if (markVal < 0) { errors.push({ row: headerIdx+i+2, admNo, name: student.name, marks: markVal, issue: 'Marks cannot be negative' }); return; }
       newMarks[student.id] = String(markVal);
     });
@@ -551,9 +551,9 @@ function MarksEntry() {
     setMarks(newMarks);
     const loaded = dataRows.length - errors.length;
     if (errors.length > 0) {
-      toast.error(\`\${errors.length} validation error(s) found — review below\`);
+      toast.error(`${errors.length} validation error(s) found — review below`);
     } else {
-      toast.success(\`\${loaded} student marks loaded from file — click Save to submit\`);
+      toast.success(`${loaded} student marks loaded from file — click Save to submit`);
     }
     if (bulkInputRef.current) bulkInputRef.current.value = '';
   };
@@ -591,7 +591,7 @@ function MarksEntry() {
               <input ref={bulkInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={e => e.target.files?.[0] && uploadBulkMarks(e.target.files[0])}/>
             </label>
             <button onClick={saveMarks} disabled={saving} className="btn-success ml-auto">
-              {saving ? 'Saving…' : \`Save Marks — \${activeSubject.subjectName}\`}
+              {saving ? 'Saving…' : `Save Marks — ${activeSubject.subjectName}`}
             </button>
           </>
         )}
@@ -677,7 +677,7 @@ function MarksEntry() {
                             return;
                           }
                         }}
-                        className={\`form-input text-center py-1.5 text-sm \${isOver ? 'border-red-400 bg-red-50 focus:ring-red-300' : ''}\`}
+                        className={`form-input text-center py-1.5 text-sm ${isOver ? 'border-red-400 bg-red-50 focus:ring-red-300' : ''}`}
                         placeholder="—"
                         tabIndex={i + 1}
                       />

@@ -263,8 +263,8 @@ function StudentProfile({ student, onClose, onIdCard }:any) {
             <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Academic & Family</p>
             {row('Roll Number',  student.rollNumber)}
             {row('Class',        className + (section ? `-${section}` : ''))}
-            {row('Father's Name', student.fatherName || student.parent?.fatherName)}
-            {row('Mother's Name', student.motherName || student.parent?.motherName)}
+            {row("Father's Name", student.fatherName || student.parent?.fatherName)}
+            {row("Mother's Name", student.motherName || student.parent?.motherName)}
             {row('Parent Name',  student.parentName)}
             {row('Parent Phone', student.parentPhone || student.parent?.primaryPhone)}
             {row('Parent Email', student.parentEmail || student.parent?.email)}

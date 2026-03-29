@@ -375,6 +375,7 @@ function AttendanceSummary() {
       )}
     </div>
   );
+}
 
 function AttendanceApprovals() {
   const [requests, setRequests] = useState<any[]>([]);

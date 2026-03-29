@@ -35,6 +35,7 @@ export const studentsApi = {
   update:        (id:string,d:any) => api.put(`/admissions/students/${id}`,d),
   delete:        (id:string) => api.delete(`/admissions/students/${id}`),
   deleteAll:     () => api.delete('/admissions/students/all'),
+  bulkCreate:    (students: any[]) => api.post('/admissions/students/bulk', { students }),
   getClasses:    () => api.get('/admissions/classes'),
   createClass:   (d:any) => api.post('/admissions/classes',d),
   deleteClass:   (id:string) => api.delete(`/admissions/classes/${id}`),

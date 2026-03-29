@@ -530,6 +530,7 @@ export default function BulkUploadPage() {
     abortRef.current = false;
     pauseRef.current = false;
     setPaused(false);
+  };
 
   const successCount = results.filter(r => r.status === 'success').length;
   const errorCount   = results.filter(r => r.status === 'error').length;

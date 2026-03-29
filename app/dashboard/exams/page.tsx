@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { Plus, Award, Trash2, Edit, BookOpen, CheckSquare, Square, ChevronDown, ChevronUp, Layers, Save, X } from 'lucide-react';
+import { Plus, Award, Trash2, Edit, BookOpen, Layers, Save, X, ChevronDown, ChevronUp } from 'lucide-react';
 import { examsApi, studentsApi } from '@/lib/api';
 import { fmt } from '@/lib/utils';
 import { Modal, Tabs, Empty, TableSkeleton, Confirm } from '@/components/ui';
@@ -19,105 +19,181 @@ export default function ExamsPage() {
   );
 }
 
+// ─────────────────────────────────────────────────────────
+// Exam Terms list
+// ─────────────────────────────────────────────────────────
 function ExamTerms() {
-  const [terms, setTerms]   = useState<any[]>([]);
+  const [terms, setTerms]     = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [selected, setSelected] = useState<any>(null);
   const [editItem, setEditItem] = useState<any>(null);
   const [deleteId, setDeleteId] = useState<string|null>(null);
   const [deleting, setDeleting] = useState(false);
-  const load = () => { setLoading(true); examsApi.getTerms().then(r=>setTerms(r.data.data||[])).catch(()=>toast.error('Failed')).finally(()=>setLoading(false)); };
+
+  const load = () => {
+    setLoading(true);
+    examsApi.getTerms().then(r => setTerms(r.data.data || [])).catch(() => toast.error('Failed to load terms')).finally(() => setLoading(false));
+  };
   useEffect(() => { load(); }, []);
 
   const deleteTerm = async () => {
-    if(!deleteId) return; setDeleting(true);
+    if (!deleteId) return; setDeleting(true);
     try { await examsApi.deleteTerm(deleteId); toast.success('Term deleted'); setDeleteId(null); load(); }
-    catch(err:any){ toast.error(err.response?.data?.message||'Cannot delete term with marks'); }
-    finally{ setDeleting(false); }
+    catch (err: any) { toast.error(err.response?.data?.message || 'Cannot delete — marks may exist'); }
+    finally { setDeleting(false); }
   };
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end"><button onClick={()=>setShowAdd(true)} className="btn-primary"><Plus className="w-4 h-4"/>Add Exam Term</button></div>
-      {loading ? <div className="grid grid-cols-3 gap-4">{[...Array(3)].map((_,i)=><div key={i} className="h-36 card animate-pulse"/>)}</div>
-      : terms.length===0 ? <Empty icon={Award} title="No exam terms yet" action={<button onClick={()=>setShowAdd(true)} className="btn-primary"><Plus className="w-4 h-4"/>Create First Term</button>}/>
-      : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-          {terms.map(t=>(
-            <div key={t.id} className="card p-5 hover:shadow-card-hover transition-shadow group">
-              <div className="flex items-start justify-between mb-3">
-                <div className="w-10 h-10 rounded-xl bg-primary-50 flex items-center justify-center cursor-pointer" onClick={()=>setSelected(t)}><Award className="w-5 h-5 text-primary-600"/></div>
-                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button onClick={()=>setEditItem(t)} className="btn-icon" title="Edit"><Edit className="w-3.5 h-3.5"/></button>
-                  <button onClick={()=>setDeleteId(t.id)} className="btn-icon hover:text-danger-500" title="Delete"><Trash2 className="w-3.5 h-3.5"/></button>
+      <div className="flex justify-end">
+        <button onClick={() => setShowAdd(true)} className="btn-primary"><Plus className="w-4 h-4"/>Add Exam Term</button>
+      </div>
+      {loading
+        ? <div className="grid grid-cols-3 gap-4">{[...Array(3)].map((_,i) => <div key={i} className="h-36 card animate-pulse"/>)}</div>
+        : terms.length === 0
+          ? <Empty icon={Award} title="No exam terms yet" action={<button onClick={() => setShowAdd(true)} className="btn-primary"><Plus className="w-4 h-4"/>Create First Term</button>}/>
+          : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+              {terms.map(t => (
+                <div key={t.id} className="card p-5 hover:shadow-card-hover transition-shadow group">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="w-10 h-10 rounded-xl bg-primary-50 flex items-center justify-center cursor-pointer" onClick={() => setSelected(t)}>
+                      <Award className="w-5 h-5 text-primary-600"/>
+                    </div>
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => setEditItem(t)} className="btn-icon" title="Edit"><Edit className="w-3.5 h-3.5"/></button>
+                      <button onClick={() => setDeleteId(t.id)} className="btn-icon hover:text-danger-500" title="Delete"><Trash2 className="w-3.5 h-3.5"/></button>
+                    </div>
+                  </div>
+                  <h3 className="font-bold text-slate-800 cursor-pointer" onClick={() => setSelected(t)}>{t.name}</h3>
+                  <p className="text-xs text-slate-400 mt-1">{t.academicYear?.name || 'Current year'}</p>
+                  <div className="flex gap-3 mt-3 pt-3 border-t border-slate-100 text-xs text-slate-400">
+                    {t.startDate && <span>{fmt.date(t.startDate)}</span>}
+                    {t.endDate   && <><span>→</span><span>{fmt.date(t.endDate)}</span></>}
+                  </div>
                 </div>
-              </div>
-              <h3 className="font-bold text-slate-800 cursor-pointer" onClick={()=>setSelected(t)}>{t.name}</h3>
-              <p className="text-xs text-slate-400 mt-1">{t.academicYear?.name||'Current year'}</p>
-              <div className="flex gap-3 mt-3 pt-3 border-t border-slate-100 text-xs text-slate-400">
-                {t.startDate && <span>{fmt.date(t.startDate)}</span>}
-                {t.endDate && <><span>→</span><span>{fmt.date(t.endDate)}</span></>}
-              </div>
+              ))}
             </div>
-          ))}
-        </div>
-      )}
-      {showAdd  && <TermModal onClose={()=>setShowAdd(false)} onSuccess={()=>{setShowAdd(false);load();}}/>}
-      {editItem && <TermModal term={editItem} onClose={()=>setEditItem(null)} onSuccess={()=>{setEditItem(null);load();}}/>}
-      {selected && <TermDetail term={selected} onClose={()=>setSelected(null)}/>}
-      {deleteId && <Confirm title="Delete Exam Term" message="This will permanently delete the exam term and all associated subjects and marks." onConfirm={deleteTerm} onCancel={()=>setDeleteId(null)} loading={deleting}/>}
+          )
+      }
+      {showAdd   && <TermModal onClose={() => setShowAdd(false)} onSuccess={() => { setShowAdd(false); load(); }}/>}
+      {editItem  && <TermModal term={editItem} onClose={() => setEditItem(null)} onSuccess={() => { setEditItem(null); load(); }}/>}
+      {selected  && <TermDetail term={selected} onClose={() => setSelected(null)}/>}
+      {deleteId  && <Confirm title="Delete Exam Term" message="This will permanently delete the exam term and all associated subjects and marks." onConfirm={deleteTerm} onCancel={() => setDeleteId(null)} loading={deleting}/>}
     </div>
   );
 }
 
-// ─── Subject row type ────────────────────────────────────
+// ─────────────────────────────────────────────────────────
+// Subject Assignment Panel (TermDetail)
+// ─────────────────────────────────────────────────────────
 type SubjectRow = { id: string; name: string; maxMarks: string; passMarks: string; examDate: string; };
 
-function TermDetail({ term, onClose }:any) {
-  const [tab, setTab]           = useState<'assign'|'existing'>('assign');
-  const [classes, setClasses]   = useState<any[]>([]);
-  const [subjects, setSubjects] = useState<any[]>([]);
-  const [loadingSubjects, setLoadingSubjects] = useState(true);
+// A "selection item" = either a whole class or a specific section
+type Selection = { classId: string; className: string; sectionId?: string; sectionName?: string; };
 
-  // Subject builder rows
+function TermDetail({ term, onClose }: any) {
+  const [tab, setTab]           = useState<'assign' | 'existing'>('assign');
+  const [classes, setClasses]   = useState<any[]>([]);    // [{id, name, sections:[{id, section}]}]
+  const [subjects, setSubjects] = useState<any[]>([]);
+  const [loadingSubj, setLoadingSubj] = useState(true);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set()); // expanded class IDs
+
   const mkRow = (): SubjectRow => ({ id: Math.random().toString(36).slice(2), name: '', maxMarks: '100', passMarks: '35', examDate: '' });
-  const [rows, setRows]             = useState<SubjectRow[]>([mkRow()]);
-  // selectedClasses: Set of classId strings
-  const [selectedClasses, setSelectedClasses] = useState<Set<string>>(new Set());
+  const [rows, setRows]         = useState<SubjectRow[]>([mkRow()]);
+
+  // selections: Map<key, Selection> where key = classId or classId+sectionId
+  const [selections, setSelections] = useState<Map<string, Selection>>(new Map());
   const [assigning, setAssigning]   = useState(false);
 
+  const selKey = (classId: string, sectionId?: string) => sectionId ? `${classId}__${sectionId}` : classId;
+
   const loadSubjects = () => {
-    setLoadingSubjects(true);
-    examsApi.getSubjects(term.id).then(r => setSubjects(r.data.data || [])).catch(() => {}).finally(() => setLoadingSubjects(false));
+    setLoadingSubj(true);
+    examsApi.getSubjects(term.id).then(r => setSubjects(r.data.data || [])).catch(() => {}).finally(() => setLoadingSubj(false));
   };
+
   useEffect(() => {
-    studentsApi.getClasses().then(r => setClasses(r.data.data || [])).catch(() => {});
+    studentsApi.getClasses().then(r => {
+      const cls = r.data.data || [];
+      setClasses(cls);
+    }).catch(() => {});
     loadSubjects();
   }, [term.id]);
 
   const setRow = (id: string, key: keyof SubjectRow, val: string) =>
     setRows(p => p.map(r => r.id === id ? { ...r, [key]: val } : r));
 
-  const toggleClass = (classId: string) =>
-    setSelectedClasses(p => { const n = new Set(p); n.has(classId) ? n.delete(classId) : n.add(classId); return n; });
+  const toggleExpanded = (classId: string) =>
+    setExpanded(p => { const n = new Set(p); n.has(classId) ? n.delete(classId) : n.add(classId); return n; });
 
-  const toggleAllClasses = () =>
-    setSelectedClasses(selectedClasses.size === classes.length ? new Set() : new Set(classes.map((c:any) => c.id)));
+  // Select/deselect a whole class (all sections)
+  const toggleWholeClass = (cls: any) => {
+    setSelections(prev => {
+      const n = new Map(prev);
+      const key = selKey(cls.id);
+      if (n.has(key)) {
+        // deselect class AND all its sections
+        n.delete(key);
+        (cls.sections || []).forEach((s: any) => n.delete(selKey(cls.id, s.id)));
+      } else {
+        // select whole class, remove any individual section selections
+        n.set(key, { classId: cls.id, className: cls.name });
+        (cls.sections || []).forEach((s: any) => n.delete(selKey(cls.id, s.id)));
+      }
+      return n;
+    });
+  };
+
+  // Select/deselect a specific section
+  const toggleSection = (cls: any, sec: any) => {
+    setSelections(prev => {
+      const n = new Map(prev);
+      const wholeKey = selKey(cls.id);
+      const secKey   = selKey(cls.id, sec.id);
+      // If whole class was selected, deselect it and select all OTHER sections individually
+      if (n.has(wholeKey)) {
+        n.delete(wholeKey);
+        (cls.sections || []).forEach((s: any) => {
+          if (s.id !== sec.id) n.set(selKey(cls.id, s.id), { classId: cls.id, className: cls.name, sectionId: s.id, sectionName: s.section });
+        });
+      } else if (n.has(secKey)) {
+        n.delete(secKey);
+      } else {
+        n.set(secKey, { classId: cls.id, className: cls.name, sectionId: sec.id, sectionName: sec.section });
+      }
+      return n;
+    });
+  };
+
+  const selectAll = () => {
+    const n = new Map<string, Selection>();
+    classes.forEach((cls: any) => n.set(selKey(cls.id), { classId: cls.id, className: cls.name }));
+    setSelections(n);
+  };
+
+  const clearAll = () => setSelections(new Map());
+
+  const isWholeClassSelected  = (classId: string) => selections.has(selKey(classId));
+  const isSectionSelected     = (classId: string, sectionId: string) =>
+    selections.has(selKey(classId)) || selections.has(selKey(classId, sectionId));
+  const isPartiallySelected   = (cls: any) =>
+    !isWholeClassSelected(cls.id) && (cls.sections || []).some((s: any) => selections.has(selKey(cls.id, s.id)));
 
   const assign = async () => {
     const validRows = rows.filter(r => r.name.trim());
-    if (validRows.length === 0)     return toast.error('Add at least one subject name');
-    if (selectedClasses.size === 0) return toast.error('Select at least one class');
+    if (validRows.length === 0)   return toast.error('Add at least one subject name');
+    if (selections.size === 0)    return toast.error('Select at least one class or section');
     setAssigning(true);
     try {
       const subjects: any[] = [];
       validRows.forEach(row => {
-        selectedClasses.forEach(classId => {
+        selections.forEach((sel) => {
           subjects.push({
             termId:      term.id,
             subjectName: row.name.trim(),
-            classId,
+            classId:     sel.classId,
             maxMarks:    Number(row.maxMarks) || 100,
             passMarks:   Number(row.passMarks) || 35,
             ...(row.examDate ? { examDate: row.examDate } : {}),
@@ -128,19 +204,19 @@ function TermDetail({ term, onClose }:any) {
       const d = r.data.data;
       toast.success(`${d.created} subjects assigned${d.skipped > 0 ? ` · ${d.skipped} already existed` : ''}`);
       setRows([mkRow()]);
-      setSelectedClasses(new Set());
+      setSelections(new Map());
       loadSubjects();
       setTab('existing');
-    } catch(err:any) { toast.error(err.response?.data?.message || 'Failed to assign subjects'); }
+    } catch (err: any) { toast.error(err.response?.data?.message || 'Failed to assign subjects'); }
     finally { setAssigning(false); }
   };
 
   const deleteSubject = async (id: string) => {
     try { await examsApi.deleteSubject(id); toast.success('Deleted'); loadSubjects(); }
-    catch { toast.error('Cannot delete subject with marks entered'); }
+    catch { toast.error('Cannot delete — marks may exist for this subject'); }
   };
 
-  // Group existing subjects by class
+  // Group existing subjects by class name
   const byClass = subjects.reduce((acc: any, s: any) => {
     const key = s.class?.name || 'Unknown';
     if (!acc[key]) acc[key] = [];
@@ -148,23 +224,34 @@ function TermDetail({ term, onClose }:any) {
     return acc;
   }, {} as Record<string, any[]>);
 
+  const validRowCount = rows.filter(r => r.name.trim()).length;
+  const totalRecords  = validRowCount * selections.size;
+
+  // Describe selections for summary line
+  const selSummary = Array.from(selections.values()).slice(0, 3).map(s =>
+    s.sectionId ? `${s.className}-${s.sectionName}` : s.className
+  ).join(', ') + (selections.size > 3 ? ` +${selections.size - 3} more` : '');
+
   return (
     <Modal title={term.name} onClose={onClose} size="xl">
       <div className="space-y-4">
         {/* Tab switcher */}
         <div className="flex gap-1 bg-slate-100 rounded-xl p-1 w-fit">
-          <button onClick={() => setTab('assign')}   className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${tab==='assign'  ?'bg-white shadow text-primary-600':'text-slate-500 hover:text-slate-700'}`}>
+          <button onClick={() => setTab('assign')}
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${tab==='assign'?'bg-white shadow text-primary-600':'text-slate-500 hover:text-slate-700'}`}>
             <span className="flex items-center gap-1.5"><Layers className="w-3.5 h-3.5"/>Assign Subjects</span>
           </button>
-          <button onClick={() => setTab('existing')} className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${tab==='existing'?'bg-white shadow text-primary-600':'text-slate-500 hover:text-slate-700'}`}>
+          <button onClick={() => setTab('existing')}
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${tab==='existing'?'bg-white shadow text-primary-600':'text-slate-500 hover:text-slate-700'}`}>
             <span className="flex items-center gap-1.5"><BookOpen className="w-3.5 h-3.5"/>Assigned ({subjects.length})</span>
           </button>
         </div>
 
-        {/* ─── ASSIGN TAB ─── */}
+        {/* ── ASSIGN TAB ── */}
         {tab === 'assign' && (
           <div className="space-y-5">
-            {/* Subject rows */}
+
+            {/* Step 1: Subject rows */}
             <div>
               <div className="flex items-center justify-between mb-2">
                 <p className="text-sm font-semibold text-slate-700">Step 1 — Define Subjects</p>
@@ -186,8 +273,8 @@ function TermDetail({ term, onClose }:any) {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {rows.map((row, i) => (
-                      <tr key={row.id} className="hover:bg-slate-50/50">
-                        <td className="px-3 py-2 text-xs text-slate-400">{i + 1}</td>
+                      <tr key={row.id}>
+                        <td className="px-3 py-2 text-xs text-slate-400">{i+1}</td>
                         <td className="px-2 py-1.5">
                           <input value={row.name} onChange={e => setRow(row.id, 'name', e.target.value)}
                             className="form-input text-sm py-1.5" placeholder="e.g. Hindi, Mathematics…"/>
@@ -218,47 +305,90 @@ function TermDetail({ term, onClose }:any) {
               </div>
             </div>
 
-            {/* Class selector */}
+            {/* Step 2: Class + Section selector */}
             <div>
-              <p className="text-sm font-semibold text-slate-700 mb-2">Step 2 — Select Classes</p>
-              <div className="border border-slate-200 rounded-xl p-3 space-y-2">
-                {/* All classes toggle */}
-                <label className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-50 cursor-pointer border border-dashed border-primary-300 bg-primary-50/50">
-                  <input type="checkbox"
-                    checked={selectedClasses.size === classes.length && classes.length > 0}
-                    onChange={toggleAllClasses}
-                    className="w-4 h-4 accent-primary-600"/>
-                  <span className="text-sm font-semibold text-primary-700">All Classes ({classes.length})</span>
-                  <span className="text-xs text-primary-500 ml-auto">Select / Deselect all</span>
-                </label>
-                {/* Individual class grid */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 pt-1">
-                  {classes.map((cls: any) => {
-                    const checked = selectedClasses.has(cls.id);
-                    return (
-                      <label key={cls.id} className={`flex items-center gap-2.5 p-2.5 rounded-xl border-2 cursor-pointer transition-all ${checked ? 'border-primary-400 bg-primary-50' : 'border-slate-200 hover:border-slate-300'}`}>
-                        <input type="checkbox" checked={checked} onChange={() => toggleClass(cls.id)} className="w-4 h-4 accent-primary-600"/>
-                        <span className="text-sm font-medium text-slate-700">{cls.name}</span>
-                      </label>
-                    );
-                  })}
-                  {classes.length === 0 && <p className="col-span-4 text-sm text-slate-400 text-center py-4">No classes found — create classes first</p>}
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-semibold text-slate-700">Step 2 — Select Classes / Sections</p>
+                <div className="flex gap-2">
+                  <button onClick={selectAll}  className="btn-ghost text-xs py-1">Select All</button>
+                  <button onClick={clearAll}   className="btn-ghost text-xs py-1">Clear</button>
                 </div>
               </div>
+
+              {classes.length === 0
+                ? <div className="border border-slate-200 rounded-xl p-6 text-center text-slate-400 text-sm">No classes found — create classes first</div>
+                : (
+                  <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
+                    {classes.map((cls: any) => {
+                      const hasSections = (cls.sections || []).length > 0;
+                      const isOpen      = expanded.has(cls.id);
+                      const wholeChecked   = isWholeClassSelected(cls.id);
+                      const partialChecked = isPartiallySelected(cls);
+
+                      return (
+                        <div key={cls.id}>
+                          {/* Class row */}
+                          <div className={`flex items-center gap-3 px-4 py-3 ${wholeChecked ? 'bg-primary-50' : partialChecked ? 'bg-blue-50/50' : 'hover:bg-slate-50'} transition-colors`}>
+                            {/* Whole-class checkbox */}
+                            <input
+                              type="checkbox"
+                              checked={wholeChecked}
+                              ref={el => { if (el) el.indeterminate = partialChecked; }}
+                              onChange={() => toggleWholeClass(cls)}
+                              className="w-4 h-4 accent-primary-600 flex-shrink-0"
+                            />
+                            <div className="flex-1">
+                              <span className={`text-sm font-semibold ${wholeChecked ? 'text-primary-700' : 'text-slate-700'}`}>{cls.name}</span>
+                              {wholeChecked && <span className="ml-2 text-xs text-primary-500 font-medium">All sections</span>}
+                              {partialChecked && (
+                                <span className="ml-2 text-xs text-blue-500 font-medium">
+                                  {(cls.sections || []).filter((s: any) => isSectionSelected(cls.id, s.id)).length} of {cls.sections?.length} sections
+                                </span>
+                              )}
+                            </div>
+                            {/* Expand/collapse to pick individual sections */}
+                            {hasSections && (
+                              <button onClick={() => toggleExpanded(cls.id)}
+                                className="btn-icon text-slate-400 hover:text-slate-600" title="Pick specific sections">
+                                {isOpen ? <ChevronUp className="w-4 h-4"/> : <ChevronDown className="w-4 h-4"/>}
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Section chips (expanded) */}
+                          {hasSections && isOpen && (
+                            <div className="flex flex-wrap gap-2 px-12 py-3 bg-slate-50/80 border-t border-slate-100">
+                              {(cls.sections || []).map((sec: any) => {
+                                const secChecked = isSectionSelected(cls.id, sec.id);
+                                return (
+                                  <label key={sec.id}
+                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border-2 cursor-pointer text-xs font-semibold transition-all
+                                      ${secChecked ? 'border-primary-400 bg-primary-600 text-white' : 'border-slate-300 text-slate-600 hover:border-primary-300'}`}>
+                                    <input type="checkbox" checked={secChecked} onChange={() => toggleSection(cls, sec)} className="hidden"/>
+                                    Section {sec.section}
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
+              }
             </div>
 
             {/* Summary + Assign button */}
-            {rows.filter(r => r.name.trim()).length > 0 && selectedClasses.size > 0 && (
-              <div className="bg-green-50 border border-green-200 rounded-xl p-3 flex items-center justify-between">
+            {validRowCount > 0 && selections.size > 0 && (
+              <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-center justify-between gap-4">
                 <div>
-                  <p className="text-sm font-semibold text-green-800">
-                    {rows.filter(r => r.name.trim()).length} subject{rows.filter(r=>r.name.trim()).length>1?'s':''} × {selectedClasses.size} class{selectedClasses.size>1?'es':''}
+                  <p className="text-sm font-bold text-green-800">
+                    {validRowCount} subject{validRowCount > 1 ? 's' : ''} × {selections.size} selection{selections.size > 1 ? 's' : ''} = {totalRecords} records
                   </p>
-                  <p className="text-xs text-green-600 mt-0.5">
-                    = {rows.filter(r => r.name.trim()).length * selectedClasses.size} subject records will be created
-                  </p>
+                  <p className="text-xs text-green-600 mt-0.5">{selSummary}</p>
                 </div>
-                <button onClick={assign} disabled={assigning} className="btn-primary">
+                <button onClick={assign} disabled={assigning} className="btn-primary flex-shrink-0">
                   {assigning
                     ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>Assigning…</>
                     : <><Save className="w-4 h-4"/>Assign Subjects</>
@@ -269,45 +399,43 @@ function TermDetail({ term, onClose }:any) {
           </div>
         )}
 
-        {/* ─── EXISTING TAB ─── */}
+        {/* ── EXISTING TAB ── */}
         {tab === 'existing' && (
           <div className="space-y-3">
-            {loadingSubjects ? <TableSkeleton rows={4} cols={4}/> :
-             subjects.length === 0 ? (
-              <div className="text-center py-10 text-slate-400">
-                <BookOpen className="w-8 h-8 mx-auto mb-2 opacity-30"/>
-                <p className="text-sm">No subjects assigned yet.</p>
-                <button onClick={() => setTab('assign')} className="btn-primary mt-3 text-xs py-1.5"><Plus className="w-3.5 h-3.5"/>Assign Subjects</button>
-              </div>
-            ) : (
-              Object.entries(byClass).map(([className, subs]: [string, any[]]) => (
-                <div key={className} className="border border-slate-200 rounded-xl overflow-hidden">
-                  <div className="bg-slate-50 px-4 py-2 border-b border-slate-200 flex items-center gap-2">
-                    <BookOpen className="w-4 h-4 text-primary-600"/>
-                    <span className="font-semibold text-sm text-slate-700">{className}</span>
-                    <span className="text-xs text-slate-400 ml-auto">{subs.length} subject{subs.length>1?'s':''}</span>
+            {loadingSubj
+              ? <TableSkeleton rows={4} cols={4}/>
+              : subjects.length === 0
+                ? (
+                  <div className="text-center py-10 text-slate-400">
+                    <BookOpen className="w-8 h-8 mx-auto mb-2 opacity-30"/>
+                    <p className="text-sm">No subjects assigned yet.</p>
+                    <button onClick={() => setTab('assign')} className="btn-primary mt-3 text-xs py-1.5"><Plus className="w-3.5 h-3.5"/>Assign Now</button>
                   </div>
-                  <table className="tbl">
-                    <thead><tr><th>Subject</th><th>Max Marks</th><th>Pass Marks</th><th>Exam Date</th><th></th></tr></thead>
-                    <tbody>
-                      {subs.map((s: any) => (
-                        <tr key={s.id}>
-                          <td className="font-medium">{s.subjectName}</td>
-                          <td>{s.maxMarks}</td>
-                          <td>{s.passMarks}</td>
-                          <td>{s.examDate ? new Date(s.examDate).toLocaleDateString('en-IN') : '—'}</td>
-                          <td>
-                            <button onClick={() => deleteSubject(s.id)} className="btn-icon hover:text-danger-500" title="Delete">
-                              <Trash2 className="w-3.5 h-3.5"/>
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ))
-            )}
+                )
+                : Object.entries(byClass).map(([className, subs]: [string, any[]]) => (
+                  <div key={className} className="border border-slate-200 rounded-xl overflow-hidden">
+                    <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-200 flex items-center gap-2">
+                      <BookOpen className="w-4 h-4 text-primary-600"/>
+                      <span className="font-semibold text-sm text-slate-700">{className}</span>
+                      <span className="text-xs text-slate-400 ml-auto">{subs.length} subject{subs.length > 1 ? 's' : ''}</span>
+                    </div>
+                    <table className="tbl">
+                      <thead><tr><th>Subject</th><th>Max Marks</th><th>Pass Marks</th><th>Exam Date</th><th></th></tr></thead>
+                      <tbody>
+                        {subs.map((s: any) => (
+                          <tr key={s.id}>
+                            <td className="font-medium">{s.subjectName}</td>
+                            <td>{s.maxMarks}</td>
+                            <td>{s.passMarks}</td>
+                            <td className="text-sm">{s.examDate ? fmt.date(s.examDate) : '—'}</td>
+                            <td><button onClick={() => deleteSubject(s.id)} className="btn-icon hover:text-danger-500"><Trash2 className="w-3.5 h-3.5"/></button></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ))
+            }
           </div>
         )}
       </div>
@@ -315,65 +443,96 @@ function TermDetail({ term, onClose }:any) {
   );
 }
 
+// ─────────────────────────────────────────────────────────
+// Marks Entry
+// ─────────────────────────────────────────────────────────
 function MarksEntry() {
-  const [terms, setTerms]     = useState<any[]>([]);
-  const [classes, setClasses] = useState<any[]>([]);
+  const [terms, setTerms]       = useState<any[]>([]);
+  const [classes, setClasses]   = useState<any[]>([]);
   const [sections, setSections] = useState<any[]>([]);
   const [subjects, setSubjects] = useState<any[]>([]);
   const [students, setStudents] = useState<any[]>([]);
   const [marks, setMarks]       = useState<Record<string,Record<string,string>>>({});
-  const [filters, setFilters]   = useState({termId:'',classId:'',sectionId:'',subjectId:''});
+  const [filters, setFilters]   = useState({ termId:'', classId:'', sectionId:'', subjectId:'' });
   const [loading, setLoading]   = useState(false);
   const [saving, setSaving]     = useState(false);
   const f = (k:string,v:string) => setFilters(p=>({...p,[k]:v}));
 
-  useEffect(()=>{ examsApi.getTerms().then(r=>setTerms(r.data.data||[])).catch(()=>{}); studentsApi.getClasses().then(r=>setClasses(r.data.data||[])).catch(()=>{}); },[]);
-  useEffect(()=>{ if(filters.termId) examsApi.getSubjects(filters.termId).then(r=>setSubjects(r.data.data||[])).catch(()=>{}); },[filters.termId]);
-  useEffect(()=>{ if(filters.classId) studentsApi.getSections(filters.classId).then(r=>setSections(r.data.data||[])).catch(()=>{}); },[filters.classId]);
+  useEffect(() => {
+    examsApi.getTerms().then(r => setTerms(r.data.data||[])).catch(()=>{});
+    studentsApi.getClasses().then(r => setClasses(r.data.data||[])).catch(()=>{});
+  }, []);
+  useEffect(() => { if(filters.termId)  examsApi.getSubjects(filters.termId).then(r=>setSubjects(r.data.data||[])).catch(()=>{}); }, [filters.termId]);
+  useEffect(() => { if(filters.classId) studentsApi.getSections(filters.classId).then(r=>setSections(r.data.data||[])).catch(()=>{}); }, [filters.classId]);
 
   const loadStudents = async () => {
-    if(!filters.classId||!filters.termId) return toast.error('Select class and term');
+    if (!filters.classId || !filters.termId) return toast.error('Select class and term');
     setLoading(true);
     try {
-      const r = await studentsApi.getAll({classId:filters.classId,sectionId:filters.sectionId||undefined,limit:200});
-      const studs = r.data.data?.students||[]; setStudents(studs);
-      const m:Record<string,Record<string,string>>={};
-      studs.forEach((s:any)=>{ m[s.id]={}; subjects.forEach((sub:any)=>{ m[s.id][sub.id]=''; }); });
+      const r = await studentsApi.getAll({ classId:filters.classId, classSectionId:filters.sectionId||undefined, limit:200 });
+      const studs = Array.isArray(r.data.data) ? r.data.data : [];
+      setStudents(studs);
+      const m: Record<string,Record<string,string>> = {};
+      studs.forEach((s:any) => { m[s.id]= {}; subjects.forEach((sub:any) => { m[s.id][sub.id]=''; }); });
       setMarks(m);
-    } catch{ toast.error('Failed'); }
-    finally{ setLoading(false); }
+    } catch { toast.error('Failed to load students'); }
+    finally { setLoading(false); }
   };
 
   const saveMarks = async () => {
     setSaving(true);
     try {
-      const entries:any[] = [];
-      Object.entries(marks).forEach(([studentId,subs])=>{ Object.entries(subs).forEach(([subjectId,marksObtained])=>{ if(marksObtained!=='') entries.push({studentId,subjectId,marksObtained:Number(marksObtained),termId:filters.termId}); }); });
-      await examsApi.enterMarks({entries});
+      const entries: any[] = [];
+      Object.entries(marks).forEach(([studentId, subs]) => {
+        Object.entries(subs).forEach(([subjectId, marksObtained]) => {
+          if (marksObtained !== '') entries.push({ studentId, subjectId, marksObtained:Number(marksObtained), termId:filters.termId });
+        });
+      });
+      await examsApi.enterMarks({ entries });
       toast.success('Marks saved!');
-    } catch(err:any){ toast.error(err.response?.data?.message||'Failed'); }
-    finally{ setSaving(false); }
+    } catch (err:any) { toast.error(err.response?.data?.message||'Failed'); }
+    finally { setSaving(false); }
   };
+
+  // Filter subjects by selected class
+  const classSubjects = subjects.filter((s:any) => !filters.classId || s.classId === filters.classId || !s.classId);
 
   return (
     <div className="space-y-4">
       <div className="card p-4 flex flex-wrap gap-3 items-end">
-        <div><label className="form-label">Exam Term</label><select value={filters.termId} onChange={e=>f('termId',e.target.value)} className="form-select w-40"><option value="">Select</option>{terms.map((t:any)=><option key={t.id} value={t.id}>{t.name}</option>)}</select></div>
-        <div><label className="form-label">Class</label><select value={filters.classId} onChange={e=>f('classId',e.target.value)} className="form-select w-32"><option value="">Select</option>{classes.map((c:any)=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
-        <div><label className="form-label">Section</label><select value={filters.sectionId} onChange={e=>f('sectionId',e.target.value)} className="form-select w-28" disabled={!sections.length}><option value="">All</option>{sections.map((s:any)=><option key={s.id} value={s.id}>{s.section}</option>)}</select></div>
+        <div><label className="form-label">Exam Term</label>
+          <select value={filters.termId} onChange={e=>f('termId',e.target.value)} className="form-select w-40">
+            <option value="">Select</option>{terms.map((t:any)=><option key={t.id} value={t.id}>{t.name}</option>)}
+          </select></div>
+        <div><label className="form-label">Class</label>
+          <select value={filters.classId} onChange={e=>f('classId',e.target.value)} className="form-select w-32">
+            <option value="">Select</option>{classes.map((c:any)=><option key={c.id} value={c.id}>{c.name}</option>)}
+          </select></div>
+        <div><label className="form-label">Section</label>
+          <select value={filters.sectionId} onChange={e=>f('sectionId',e.target.value)} className="form-select w-28" disabled={!sections.length}>
+            <option value="">All</option>{sections.map((s:any)=><option key={s.id} value={s.id}>{s.section}</option>)}
+          </select></div>
         <button onClick={loadStudents} className="btn-primary" disabled={!filters.classId||!filters.termId}>Load Students</button>
-        {students.length>0 && subjects.length>0 && <button onClick={saveMarks} disabled={saving} className="btn-success ml-auto">{saving?'Saving…':'Save All Marks'}</button>}
+        {students.length > 0 && classSubjects.length > 0 && (
+          <button onClick={saveMarks} disabled={saving} className="btn-success ml-auto">{saving?'Saving…':'Save All Marks'}</button>
+        )}
       </div>
-      {students.length>0 && subjects.length>0 && (
+      {loading && <div className="card p-8 text-center"><div className="w-6 h-6 border-2 border-primary-600 border-t-transparent rounded-full animate-spin mx-auto"/></div>}
+      {!loading && students.length > 0 && classSubjects.length > 0 && (
         <div className="card overflow-auto">
           <table className="tbl">
-            <thead><tr><th>Student</th>{subjects.map((s:any)=><th key={s.id}>{s.name}<br/><span className="text-xs font-normal text-slate-400">/{s.maxMarks}</span></th>)}</tr></thead>
-            <tbody>{students.map((s:any)=>(
+            <thead><tr>
+              <th>Student</th>
+              {classSubjects.map((s:any) => <th key={s.id}>{s.subjectName}<br/><span className="text-xs font-normal text-slate-400">/{s.maxMarks}</span></th>)}
+            </tr></thead>
+            <tbody>{students.map((s:any) => (
               <tr key={s.id}>
                 <td><p className="font-medium text-sm">{s.name}</p><p className="text-xs text-slate-400">{s.admissionNumber}</p></td>
-                {subjects.map((sub:any)=>(
+                {classSubjects.map((sub:any) => (
                   <td key={sub.id} className="p-2">
-                    <input type="number" min={0} max={sub.maxMarks} value={marks[s.id]?.[sub.id]||''} onChange={e=>setMarks(p=>({...p,[s.id]:{...p[s.id],[sub.id]:e.target.value}}))}
+                    <input type="number" min={0} max={sub.maxMarks}
+                      value={marks[s.id]?.[sub.id]||''}
+                      onChange={e => setMarks(p => ({...p, [s.id]:{...p[s.id],[sub.id]:e.target.value}}))}
                       className="form-input w-20 text-center py-1.5 text-sm" placeholder="—"/>
                   </td>
                 ))}
@@ -382,40 +541,51 @@ function MarksEntry() {
           </table>
         </div>
       )}
-      {loading && <div className="card p-8 text-center"><div className="w-6 h-6 border-2 border-primary-600 border-t-transparent rounded-full animate-spin mx-auto"/></div>}
-      {!loading && students.length===0 && <div className="card p-12 text-center text-slate-400 text-sm">Select exam term, class and load students to enter marks</div>}
+      {!loading && students.length === 0 && <div className="card p-12 text-center text-slate-400 text-sm">Select exam term, class and load students to enter marks</div>}
     </div>
   );
 }
 
+// ─────────────────────────────────────────────────────────
+// Exam Results
+// ─────────────────────────────────────────────────────────
 function ExamResults() {
   const [terms, setTerms]     = useState<any[]>([]);
   const [classes, setClasses] = useState<any[]>([]);
   const [results, setResults] = useState<any[]>([]);
-  const [filters, setFilters] = useState({termId:'',classId:''});
+  const [filters, setFilters] = useState({ termId:'', classId:'' });
   const [loading, setLoading] = useState(false);
   const f = (k:string,v:string) => setFilters(p=>({...p,[k]:v}));
-  useEffect(()=>{ examsApi.getTerms().then(r=>setTerms(r.data.data||[])).catch(()=>{}); studentsApi.getClasses().then(r=>setClasses(r.data.data||[])).catch(()=>{}); },[]);
+  useEffect(() => {
+    examsApi.getTerms().then(r => setTerms(r.data.data||[])).catch(()=>{});
+    studentsApi.getClasses().then(r => setClasses(r.data.data||[])).catch(()=>{});
+  }, []);
   const load = async () => {
-    if(!filters.termId||!filters.classId) return toast.error('Select term and class');
+    if (!filters.termId || !filters.classId) return toast.error('Select term and class');
     setLoading(true);
     try { const r = await examsApi.getResults(filters); setResults(r.data.data||[]); }
-    catch{ toast.error('Failed'); }
-    finally{ setLoading(false); }
+    catch { toast.error('Failed'); }
+    finally { setLoading(false); }
   };
   return (
     <div className="space-y-4">
       <div className="card p-4 flex gap-3 items-end">
-        <div><label className="form-label">Exam Term</label><select value={filters.termId} onChange={e=>f('termId',e.target.value)} className="form-select w-40"><option value="">Select</option>{terms.map((t:any)=><option key={t.id} value={t.id}>{t.name}</option>)}</select></div>
-        <div><label className="form-label">Class</label><select value={filters.classId} onChange={e=>f('classId',e.target.value)} className="form-select w-36"><option value="">Select</option>{classes.map((c:any)=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+        <div><label className="form-label">Exam Term</label>
+          <select value={filters.termId} onChange={e=>f('termId',e.target.value)} className="form-select w-40">
+            <option value="">Select</option>{terms.map((t:any)=><option key={t.id} value={t.id}>{t.name}</option>)}
+          </select></div>
+        <div><label className="form-label">Class</label>
+          <select value={filters.classId} onChange={e=>f('classId',e.target.value)} className="form-select w-36">
+            <option value="">Select</option>{classes.map((c:any)=><option key={c.id} value={c.id}>{c.name}</option>)}
+          </select></div>
         <button onClick={load} className="btn-primary">Get Results</button>
       </div>
       {loading && <div className="card p-8 text-center"><div className="w-6 h-6 border-2 border-primary-600 border-t-transparent rounded-full animate-spin mx-auto"/></div>}
-      {!loading && results.length>0 && (
+      {!loading && results.length > 0 && (
         <div className="card overflow-auto">
           <table className="tbl">
             <thead><tr><th>Rank</th><th>Student</th><th>Total Marks</th><th>Percentage</th><th>Grade</th><th>Result</th></tr></thead>
-            <tbody>{results.map((r:any,i:number)=>(
+            <tbody>{results.map((r:any,i:number) => (
               <tr key={i}>
                 <td><span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${i===0?'bg-yellow-100 text-yellow-700':i===1?'bg-slate-100 text-slate-600':i===2?'bg-orange-100 text-orange-700':'text-slate-500'}`}>{i+1}</span></td>
                 <td><p className="font-medium text-sm">{r.name}</p><p className="text-xs text-slate-400">{r.admissionNumber}</p></td>
@@ -428,32 +598,47 @@ function ExamResults() {
           </table>
         </div>
       )}
-      {!loading && results.length===0 && <div className="card p-12 text-center text-slate-400 text-sm">Select term and class to view results</div>}
+      {!loading && results.length === 0 && <div className="card p-12 text-center text-slate-400 text-sm">Select term and class to view results</div>}
     </div>
   );
 }
 
-function TermModal({ term, onClose, onSuccess }:any) {
+// ─────────────────────────────────────────────────────────
+// Term Modal (create / edit)
+// ─────────────────────────────────────────────────────────
+function TermModal({ term, onClose, onSuccess }: any) {
   const editing = !!term;
-  const [form, setForm] = useState({name:term?.name||'',startDate:term?.startDate?fmt.dateInput(term.startDate):'',endDate:term?.endDate?fmt.dateInput(term.endDate):''});
+  const [form, setForm] = useState({
+    name:      term?.name || '',
+    startDate: term?.startDate ? fmt.dateInput(term.startDate) : '',
+    endDate:   term?.endDate   ? fmt.dateInput(term.endDate)   : '',
+  });
   const [saving, setSaving] = useState(false);
-  const submit = async (e:React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setSaving(true);
     try {
-      if(editing) await examsApi.updateTerm(term.id,form); else await examsApi.createTerm(form);
-      toast.success(editing?'Updated!':'Created!'); onSuccess();
-    } catch(err:any){ toast.error(err.response?.data?.message||'Failed'); }
-    finally{ setSaving(false); }
+      if (editing) await examsApi.updateTerm(term.id, form);
+      else         await examsApi.createTerm(form);
+      toast.success(editing ? 'Updated!' : 'Created!');
+      onSuccess();
+    } catch (err:any) { toast.error(err.response?.data?.message || 'Failed'); }
+    finally { setSaving(false); }
   };
   return (
-    <Modal title={editing?'Edit Term':'Add Exam Term'} onClose={onClose} size="sm">
+    <Modal title={editing ? 'Edit Term' : 'Add Exam Term'} onClose={onClose} size="sm">
       <form onSubmit={submit} className="space-y-4">
-        <div><label className="form-label">Term Name *</label><input required value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))} className="form-input" placeholder="e.g. Unit Test 1, Half Yearly Exam"/></div>
+        <div><label className="form-label">Term Name *</label>
+          <input required value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))} className="form-input" placeholder="e.g. Unit Test 1, Half Yearly Exam"/></div>
         <div className="grid grid-cols-2 gap-3">
-          <div><label className="form-label">Start Date</label><input type="date" value={form.startDate} onChange={e=>setForm(p=>({...p,startDate:e.target.value}))} className="form-input"/></div>
-          <div><label className="form-label">End Date</label><input type="date" value={form.endDate} onChange={e=>setForm(p=>({...p,endDate:e.target.value}))} className="form-input"/></div>
+          <div><label className="form-label">Start Date</label>
+            <input type="date" value={form.startDate} onChange={e=>setForm(p=>({...p,startDate:e.target.value}))} className="form-input"/></div>
+          <div><label className="form-label">End Date</label>
+            <input type="date" value={form.endDate} onChange={e=>setForm(p=>({...p,endDate:e.target.value}))} className="form-input"/></div>
         </div>
-        <div className="flex gap-3 pt-2"><button type="button" onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button><button type="submit" disabled={saving} className="btn-primary flex-1 justify-center">{saving?'Saving…':editing?'Update':'Create'}</button></div>
+        <div className="flex gap-3 pt-2">
+          <button type="button" onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
+          <button type="submit" disabled={saving} className="btn-primary flex-1 justify-center">{saving?'Saving…':editing?'Update':'Create'}</button>
+        </div>
       </form>
     </Modal>
   );

@@ -377,13 +377,7 @@ export default function BulkUploadPage() {
   type RowResult = { row:number; name:string; admNo:string; status:'success'|'error'|'skip'; message:string; };
 
   // ── Concurrency presets
-  const SPEEDS = [
-    { label:'Safe (1×)',    concurrency:1,  delay:800, desc:'1 at a time — most reliable' },
-    { label:'Normal (3×)',  concurrency:3,  delay:400, desc:'3 concurrent — good balance' },
-    { label:'Fast (10×)',   concurrency:10, delay:100, desc:'10 concurrent — for 500+ students' },
-    { label:'Turbo (25×)',  concurrency:25, delay:0,   desc:'25 concurrent — 2000 students fast' },
-  ];
-  const [speedIdx,    setSpeedIdx]    = useState(1);
+  const CHUNK_SIZE = 500;  // 500 rows per request → 2000 rows = 4 requests total
   const [paused,      setPaused]      = useState(false);
   const [rateLimited, setRateLimited] = useState(false);
   const [currentRow,  setCurrentRow]  = useState(0);
@@ -411,32 +405,40 @@ export default function BulkUploadPage() {
     throw lastErr;
   };
 
-  // ── Step 4: import rows — concurrent batch engine
+  // ── Step 4: TRUE BULK import — 2000 rows in ~4 requests using /students/bulk ──
   const runImport = async () => {
     setImporting(true);
     setProgress(0);
     setRateLimited(false);
-    abortRef.current  = false;
-    pauseRef.current  = false;
+    abortRef.current = false;
+    pauseRef.current = false;
 
-    const preset = SPEEDS[speedIdx];
     let resolution = classResolution;
     if (Object.keys(resolution).length === 0) {
       resolution = await resolveClasses(rows) || {};
     }
 
-    // Always re-fetch fresh to guarantee duplicate detection is up-to-date
+    // Always re-fetch fresh admission numbers for duplicate detection
     const freshAdmNos = await loadExistingAdmNos();
-    type Job = { index: number; row: Record<string,string>; body: any; resolved: any; skip?: string; validationErr?: string; };
-    const jobs: Job[] = rows.map((row, i) => {
-      // Duplicate check
-      if (freshAdmNos.has(row.admissionNumber)) {
-        return { index:i, row, body:null, resolved:null, skip:'Already exists — skipped' };
-      }
 
-      const resolved = resolution[i] || { classId:'', sectionId:'', warn:'' };
-      const body: any = { name: row.name, admissionNumber: row.admissionNumber };
-      // ── Date of Birth: backend expects "dateOfBirth" ──
+    // ── Build all bodies upfront ──────────────────────────────────────────
+    type Job = { index: number; row: Record<string,string>; body: any | null; skip?: string; validationErr?: string; };
+    const jobs: Job[] = rows.map((row, i) => {
+      if (freshAdmNos.has(row.admissionNumber)) {
+        return { index: i, row, body: null, skip: 'Already exists — skipped' };
+      }
+      const resolved = resolution[i] || { classId: '', sectionId: '', warn: '' };
+      const parentName = row.fatherName || row.motherName || '';
+      if (!row.name || !row.admissionNumber) return { index: i, row, body: null, validationErr: 'Missing Name or Admission Number' };
+      if (!row.parentPhone)                  return { index: i, row, body: null, validationErr: 'Missing Parent Phone' };
+      if (!parentName)                       return { index: i, row, body: null, validationErr: "Missing Parent Name (Father's or Mother's Name required)" };
+
+      const body: any = {
+        name:             row.name,
+        admissionNumber:  row.admissionNumber,
+        parentName,
+        parentPhone:      row.parentPhone,
+      };
       if (row.dob)            body.dateOfBirth    = row.dob;
       if (row.gender)         body.gender         = row.gender;
       if (row.phone)          body.phone          = row.phone;
@@ -446,80 +448,81 @@ export default function BulkUploadPage() {
       if (row.bloodGroup)     body.bloodGroup     = row.bloodGroup;
       if (row.rollNumber)     body.rollNumber     = row.rollNumber;
       if (row.nationality)    body.nationality    = row.nationality;
-      // ── Aadhaar: backend schema spells it "aadhaarNumber" (double a) ──
       if (row.aadharNumber)   body.aadhaarNumber  = row.aadharNumber;
       if (row.previousSchool) body.previousSchool = row.previousSchool;
-      // ── Class: backend expects a single "classSectionId" UUID ──
-      if (resolved.sectionId) body.classSectionId = resolved.sectionId;
-      // ── Parent: backend expects flat top-level fields, not nested ──
-      // parentName is required — prefer fatherName, fall back to motherName
-      const parentName = row.fatherName || row.motherName || '';
-      if (parentName)           body.parentName       = parentName;
-      if (row.parentPhone)      body.parentPhone      = row.parentPhone;
-      if (row.parentEmail)      body.parentEmail      = row.parentEmail;
+      if (row.parentEmail)    body.parentEmail    = row.parentEmail;
       if (row.parentOccupation) body.parentOccupation = row.parentOccupation;
+      if (resolved.sectionId) body.classSectionId = resolved.sectionId;
 
-      if (!row.name || !row.admissionNumber) return { index:i, row, body, resolved, validationErr:'Missing Name or Admission Number' };
-      if (!row.parentPhone)                  return { index:i, row, body, resolved, validationErr:'Missing Parent Phone' };
-      if (!parentName)                       return { index:i, row, body, resolved, validationErr:'Missing Parent Name (Father\'s Name or Mother\'s Name required)' };
-
-      return { index:i, row, body, resolved };
+      return { index: i, row, body };
     });
 
-    // Process one job
-    const processJob = async (job: Job): Promise<RowResult> => {
-      if (job.skip) return { row:job.index+1, name:job.row.name||'—', admNo:job.row.admissionNumber, status:'skip', message: job.skip };
-      if (job.validationErr) return { row:job.index+1, name:job.row.name||'—', admNo:job.row.admissionNumber||'—', status:'error', message: job.validationErr };
-      try {
-        await withRetry(() => studentsApi.create(job.body));
-        const warn = job.resolved.warn ? ` · ⚠ ${job.resolved.warn}` : '';
-        return { row:job.index+1, name:job.body.name, admNo:job.body.admissionNumber, status:'success', message:`Admitted${warn}` };
-      } catch(err: any) {
-        const s = err?.response?.status;
-        const d = err?.response?.data;
-        let msg = d?.message || d?.error || d?.errors?.[0]?.message || `Error ${s||''}`;
-        if (s === 429) msg = 'Rate limited';
-        if (s === 404) msg = 'Route not found';
-        if (s === 409) msg = 'Admission number already exists';
-        return { row:job.index+1, name:job.body.name, admNo:job.body.admissionNumber, status:'error', message: msg };
-      }
-    };
+    // Separate skips/errors from valid jobs immediately
+    const toImport = jobs.filter(j => j.body && !j.skip && !j.validationErr);
+    const skipped  = jobs.filter(j => j.skip);
+    const invalid  = jobs.filter(j => j.validationErr);
 
-    // Concurrent batch runner
-    let completed = 0;
-    const orderedResults: RowResult[] = new Array(jobs.length);
+    // Show skips & validation errors immediately in results
+    const results: RowResult[] = [
+      ...skipped.map(j => ({ row: j.index+1, name: j.row.name||'—', admNo: j.row.admissionNumber, status: 'skip' as const, message: j.skip! })),
+      ...invalid.map(j => ({ row: j.index+1, name: j.row.name||'—', admNo: j.row.admissionNumber||'—', status: 'error' as const, message: j.validationErr! })),
+    ];
+    setResults([...results]);
 
-    const runBatch = async (batch: Job[]) => {
-      await Promise.all(batch.map(async (job) => {
-        if (abortRef.current) return;
-        while (pauseRef.current) {
-          await new Promise(r => setTimeout(r, 200));
-          if (abortRef.current) return;
-        }
-        const result = await processJob(job);
-        orderedResults[job.index] = result;
-        completed++;
-        setCurrentRow(completed);
-        setProgress(Math.round((completed / jobs.length) * 100));
-        // Update results array (keep order)
-        const filled = orderedResults.filter(Boolean);
-        setResults([...filled]);
-      }));
-    };
+    if (toImport.length === 0) {
+      toast('Nothing to import — all rows skipped or invalid.', { icon: 'ℹ️' });
+      setImporting(false);
+      return;
+    }
 
-    // Split into batches
-    const { concurrency, delay } = preset;
-    for (let i = 0; i < jobs.length; i += concurrency) {
-      if (abortRef.current) { toast('Import stopped.', { icon:'⛔' }); break; }
+    toast.success(`Sending ${toImport.length} students in ${Math.ceil(toImport.length / CHUNK_SIZE)} batch(es)…`, { duration: 3000 });
+
+    let completed = skipped.length + invalid.length;
+    const total   = jobs.length;
+
+    // ── Split into 500-row chunks and fire sequentially ──────────────────
+    for (let i = 0; i < toImport.length; i += CHUNK_SIZE) {
+      if (abortRef.current) { toast('Import stopped.', { icon: '⛔' }); break; }
       while (pauseRef.current) {
         await new Promise(r => setTimeout(r, 300));
         if (abortRef.current) break;
       }
-      const batch = jobs.slice(i, i + concurrency);
-      await runBatch(batch);
-      if (delay > 0 && i + concurrency < jobs.length) {
-        await new Promise(r => setTimeout(r, delay));
+
+      const chunk    = toImport.slice(i, i + CHUNK_SIZE);
+      const chunkNum = Math.floor(i / CHUNK_SIZE) + 1;
+      const bodies   = chunk.map(j => j.body);
+
+      try {
+        const r  = await withRetry(() => studentsApi.bulkCreate(bodies));
+        const d  = r.data.data;
+
+        // Map backend per-row errors back to results
+        const errMap = new Map<string, string>();
+        (d.errors || []).forEach((e: any) => errMap.set(String(e.index), e.message));
+
+        chunk.forEach((job, ci) => {
+          const backendErr = errMap.get(String(ci));
+          if (backendErr) {
+            results.push({ row: job.index+1, name: job.body.name, admNo: job.body.admissionNumber, status: 'error', message: backendErr });
+          } else {
+            const warn = resolution[job.index]?.warn ? ` · ⚠ ${resolution[job.index].warn}` : '';
+            results.push({ row: job.index+1, name: job.body.name, admNo: job.body.admissionNumber, status: 'success', message: `Admitted${warn}` });
+          }
+        });
+
+        toast.success(`Batch ${chunkNum}: ${d.created} created, ${d.skipped} skipped`);
+      } catch(err: any) {
+        const msg = err?.response?.data?.message || `Batch ${chunkNum} failed`;
+        chunk.forEach(job => {
+          results.push({ row: job.index+1, name: job.body.name, admNo: job.body.admissionNumber, status: 'error', message: msg });
+        });
+        toast.error(`Batch ${chunkNum} failed: ${msg}`);
       }
+
+      completed = Math.min(completed + chunk.length, total);
+      setCurrentRow(completed);
+      setProgress(Math.round((completed / total) * 100));
+      setResults([...results]);
     }
 
     setImporting(false);
@@ -528,23 +531,14 @@ export default function BulkUploadPage() {
     pauseRef.current = false;
     setPaused(false);
 
-    const finalResults = orderedResults.filter(Boolean);
-    const ok   = finalResults.filter(r => r.status === 'success').length;
-    const err  = finalResults.filter(r => r.status === 'error').length;
-    const skip = finalResults.filter(r => r.status === 'skip').length;
-    if (err === 0) toast.success(`${ok} students admitted!${skip>0?` (${skip} skipped)`:''}`);
-    else toast(`${ok} admitted · ${err} failed · ${skip} skipped`, { icon:'⚠️', duration:8000 });
-  };
-
   const successCount = results.filter(r => r.status === 'success').length;
   const errorCount   = results.filter(r => r.status === 'error').length;
   const skipCount    = results.filter(r => r.status === 'skip').length;
   const isDone       = !importing && results.length > 0 && (results.length === rows.length || abortRef.current);
 
-  // Estimated time remaining (concurrency-aware)
-  const preset = SPEEDS[speedIdx];
+  // ETA: ~1.5s per 500-row chunk
   const etaSec = importing && currentRow > 0
-    ? Math.round(((rows.length - currentRow) / preset.concurrency) * (preset.delay + 300) / 1000)
+    ? Math.round(((rows.length - currentRow) / CHUNK_SIZE) * 1.5)
     : 0;
 
   // ─────────────────────────────────────────────────────────────────
@@ -739,28 +733,13 @@ export default function BulkUploadPage() {
 
           {/* Speed selector — shown before import starts */}
           {!importing && results.length === 0 && (
-            <div className="card p-4 space-y-3">
-              <div className="flex items-center gap-2 mb-1">
-                <Info className="w-4 h-4 text-blue-600"/>
-                <p className="text-sm font-semibold text-slate-700">Upload Speed</p>
-                <span className="text-xs text-slate-400 ml-auto">{rows.length} students to import</span>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {SPEEDS.map((s, i) => (
-                  <label key={i} className={`flex flex-col gap-1 p-3 rounded-xl border-2 cursor-pointer transition-all ${speedIdx===i?'border-primary-400 bg-primary-50':'border-slate-200 hover:border-slate-300'}`}>
-                    <input type="radio" name="speed" checked={speedIdx===i} onChange={()=>setSpeedIdx(i)} className="hidden"/>
-                    <span className="text-sm font-semibold text-slate-700">{s.label}</span>
-                    <span className="text-xs text-slate-400">{s.desc}</span>
-                    <span className="text-xs text-primary-600 font-semibold mt-1">
-                      ~{Math.ceil(rows.length / s.concurrency * (s.delay + 300) / 1000)}s est.
-                    </span>
-                  </label>
-                ))}
-              </div>
-              <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl">
-                <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5"/>
-                <p className="text-xs text-amber-700">
-                  <span className="font-semibold">Turbo (25×)</span> sends 25 requests in parallel — fastest for 2000+ students but may trigger rate limiting. If you see many failures, switch to Normal or Safe and retry only the failed rows.
+            <div className="card p-4 flex items-start gap-3 bg-blue-50 border border-blue-200">
+              <Info className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5"/>
+              <div>
+                <p className="text-sm font-semibold text-blue-800">⚡ Bulk Mode — Lightning Fast</p>
+                <p className="text-xs text-blue-700 mt-0.5">
+                  {rows.length} students will be uploaded in {Math.ceil(rows.length / CHUNK_SIZE)} batch request{Math.ceil(rows.length / CHUNK_SIZE) > 1 ? 's' : ''} (~{Math.ceil(rows.length / CHUNK_SIZE) * 2}s estimated).
+                  2000 students upload in under 10 seconds.
                 </p>
               </div>
             </div>
@@ -988,7 +967,7 @@ export default function BulkUploadPage() {
                 <ChevronLeft className="w-4 h-4"/>Re-upload
               </button>
               <button onClick={runImport} className="btn-primary py-3 px-8 text-base">
-                <Upload className="w-5 h-5"/>Import All {rows.length} Students · {SPEEDS[speedIdx].label}
+                <Upload className="w-5 h-5"/>Import All {rows.length} Students
               </button>
             </div>
           )}

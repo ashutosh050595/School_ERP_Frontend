@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
-import { Save, Search, UserCheck, UserX, Clock, BarChart2, Download } from 'lucide-react';
+import { Save, Search, UserCheck, UserX, Clock, BarChart2, Download, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { attendanceApi, studentsApi } from '@/lib/api';
 import { fmt, statusColor } from '@/lib/utils';
 import { StatCard, Tabs, Empty, Avatar, TableSkeleton, SearchInput } from '@/components/ui';
@@ -16,11 +16,12 @@ export default function AttendancePage() {
       <div className="page-header">
         <div><h1 className="page-title">Attendance</h1><p className="page-sub">Mark & review student attendance</p></div>
       </div>
-      <Tabs tabs={[{key:'mark',label:'Mark Attendance'},{key:'report',label:'Report'},{key:'summary',label:'Summary'},{key:'student',label:'Student History'}]} active={tab} onChange={setTab}/>
+      <Tabs tabs={[{key:'mark',label:'Mark Attendance'},{key:'report',label:'Report'},{key:'summary',label:'Summary'},{key:'student',label:'Student History'},{key:'approvals',label:'Approval Requests'}]} active={tab} onChange={setTab}/>
       {tab==='mark'    && <MarkAttendance/>}
       {tab==='report'  && <AttendanceReport/>}
       {tab==='summary' && <AttendanceSummary/>}
-      {tab==='student' && <StudentAttendance/>}
+      {tab==='student'   && <StudentAttendance/>}
+      {tab==='approvals' && <AttendanceApprovals/>}
     </div>
   );
 }
@@ -374,4 +375,122 @@ function AttendanceSummary() {
       )}
     </div>
   );
+
+function AttendanceApprovals() {
+  const [requests, setRequests] = useState<any[]>([]);
+  const [loading, setLoading]   = useState(false);
+  const [filter, setFilter]     = useState('');
+  const [reviewing, setReviewing] = useState<string|null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const r = await attendanceApi.getChangeRequests(filter||undefined);
+      setRequests(r.data.data || []);
+    } catch { toast.error('Failed to load requests'); }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, [filter]);
+
+  const review = async (requestId: string, action: 'APPROVE'|'REJECT', notes?: string) => {
+    setReviewing(requestId);
+    try {
+      await attendanceApi.reviewRequest({ requestId, action, reviewNotes: notes });
+      toast.success(action === 'APPROVE' ? 'Request approved!' : 'Request rejected');
+      load();
+    } catch (err:any) { toast.error(err.response?.data?.message || 'Failed'); }
+    finally { setReviewing(null); }
+  };
+
+  const pending  = requests.filter(r => r.status === 'PENDING').length;
+  const approved = requests.filter(r => r.status === 'APPROVED').length;
+  const rejected = requests.filter(r => r.status === 'REJECTED').length;
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-3 gap-4">
+        <StatCard icon={AlertCircle} iconBg="bg-yellow-50" color="text-yellow-600" label="Pending"  value={pending}/>
+        <StatCard icon={CheckCircle} iconBg="bg-green-50"  color="text-green-600"  label="Approved" value={approved}/>
+        <StatCard icon={XCircle}     iconBg="bg-red-50"    color="text-red-600"    label="Rejected" value={rejected}/>
+      </div>
+
+      <div className="card p-4 flex gap-3 items-center">
+        <span className="text-sm font-medium text-slate-600">Filter:</span>
+        {[{v:'',l:'All'},{v:'PENDING',l:'Pending'},{v:'APPROVED',l:'Approved'},{v:'REJECTED',l:'Rejected'}].map(({v,l}) => (
+          <button key={v} onClick={() => setFilter(v)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${filter===v?'bg-primary-600 text-white':'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{l}</button>
+        ))}
+        <button onClick={load} className="ml-auto btn-ghost text-xs py-1.5">↻ Refresh</button>
+      </div>
+
+      {loading && <div className="card p-8 text-center"><div className="w-6 h-6 border-2 border-primary-600 border-t-transparent rounded-full animate-spin mx-auto"/></div>}
+
+      {!loading && requests.length === 0 && (
+        <div className="card p-12 text-center text-slate-400">
+          <CheckCircle className="w-10 h-10 mx-auto mb-3 opacity-20"/>
+          <p>No change requests found.</p>
+        </div>
+      )}
+
+      {!loading && requests.length > 0 && (
+        <div className="space-y-3">
+          {requests.map((req: any) => (
+            <div key={req.id} className={`card p-4 border-l-4 ${req.status==='PENDING'?'border-yellow-400':req.status==='APPROVED'?'border-green-400':'border-red-400'}`}>
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className={`badge ${req.status==='PENDING'?'badge-yellow':req.status==='APPROVED'?'badge-green':'badge-red'}`}>{req.status}</span>
+                    <span className="text-sm font-semibold text-slate-700">
+                      {req.attendanceRecord?.classSection?.class?.name} — {req.attendanceRecord?.classSection?.section}
+                    </span>
+                    <span className="text-xs text-slate-400">
+                      {req.attendanceRecord?.date ? new Date(req.attendanceRecord.date).toLocaleDateString('en-IN') : '—'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    <span className="font-medium">Requested by:</span> {req.requestedBy?.user?.name || '—'}
+                    <span className="mx-2">·</span>
+                    <span className="font-medium">On:</span> {new Date(req.createdAt).toLocaleDateString('en-IN')}
+                  </p>
+                  <p className="text-sm text-slate-600 mt-1"><span className="font-medium">Reason:</span> {req.reason}</p>
+                  {req.reviewNotes && (
+                    <p className="text-xs text-slate-400 italic mt-1">Review note: {req.reviewNotes}</p>
+                  )}
+                  {req.proposedChanges && Array.isArray(req.proposedChanges) && req.proposedChanges.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {req.proposedChanges.slice(0, 5).map((c: any, i: number) => (
+                        <span key={i} className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                          {c.studentId?.slice(0,6)}… → {c.newStatus}
+                        </span>
+                      ))}
+                      {req.proposedChanges.length > 5 && <span className="text-xs text-slate-400">+{req.proposedChanges.length-5} more</span>}
+                    </div>
+                  )}
+                </div>
+                {req.status === 'PENDING' && (
+                  <div className="flex gap-2 flex-shrink-0">
+                    <button
+                      onClick={() => { const note = window.prompt('Review note (optional):') ?? ''; review(req.id, 'APPROVE', note); }}
+                      disabled={reviewing === req.id}
+                      className="btn-success text-xs py-1.5 px-3">
+                      <CheckCircle className="w-3.5 h-3.5"/>Approve
+                    </button>
+                    <button
+                      onClick={() => { const note = window.prompt('Reason for rejection:') ?? ''; review(req.id, 'REJECT', note); }}
+                      disabled={reviewing === req.id}
+                      className="btn-danger text-xs py-1.5 px-3">
+                      <XCircle className="w-3.5 h-3.5"/>Reject
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 }

@@ -25,8 +25,15 @@ export function Empty({ icon: Icon, title, sub, action }: { icon:any; title:stri
 // ─── Modal ────────────────────────────────────
 export function Modal({ title, onClose, children, size='md' }: { title:string; onClose:()=>void; children:React.ReactNode; size?:'sm'|'md'|'lg'|'xl' }) {
   const w = { sm:'max-w-sm', md:'max-w-md', lg:'max-w-2xl', xl:'max-w-4xl' }[size];
+  // Track mousedown target to prevent closing when user drags text selection
+  // from inside the modal box out onto the overlay.
+  const mouseDownTarget = useRef<EventTarget|null>(null);
   return (
-    <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&onClose()}>
+    <div
+      className="modal-overlay"
+      onMouseDown={e => { mouseDownTarget.current = e.target; }}
+      onMouseUp={e => { if (e.target === e.currentTarget && mouseDownTarget.current === e.currentTarget) onClose(); }}
+    >
       <div className={cn('modal-box w-full max-h-[90vh] overflow-y-auto', w)}>
         <div className="flex items-center justify-between p-5 border-b border-slate-100">
           <h2 className="font-display font-bold text-lg text-slate-800">{title}</h2>

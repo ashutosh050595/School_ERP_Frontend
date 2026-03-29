@@ -503,7 +503,7 @@ function MarksEntry() {
   };
 
   // ── Download template ──
-  const downloadTemplate = () => {
+  const downloadTemplate = async () => {
     if (!activeSubject || students.length === 0) return toast.error('Load students first');
     const XLSX = await import('xlsx');
     const wsData = [

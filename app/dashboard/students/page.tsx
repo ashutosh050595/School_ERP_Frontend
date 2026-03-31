@@ -119,17 +119,28 @@ export default function StudentsPage() {
 function StudentForm({ student, onClose, onSuccess, classes }: any) {
   const editing = !!student;
   const [form, setForm] = useState({
-    name: student?.name||'', admissionNumber: student?.admissionNumber||'',
-    dob: student?.dob?fmt.dateInput(student.dob):'', gender: student?.gender||'MALE',
-    phone: student?.phone||'', address: student?.address||'',
-    classId: student?.class?.id||'', sectionId: student?.section?.id||'',
-    religion: student?.religion||'', category: student?.category||'GENERAL',
-    bloodGroup: student?.bloodGroup||'', rollNumber: student?.rollNumber||'',
-    fatherName: student?.parent?.fatherName||'', motherName: student?.parent?.motherName||'',
-    parentPhone: student?.parent?.primaryPhone||'', parentEmail: student?.parent?.email||'',
-    parentOccupation: student?.parent?.occupation||'', emergencyContact: student?.parent?.emergencyContact||'',
-    nationality: student?.nationality||'Indian', aadharNumber: student?.aadharNumber||'',
-    previousSchool: student?.previousSchool||'',
+    name:             student?.name || '',
+    admissionNumber:  student?.admissionNumber || '',
+    dob:              student?.dateOfBirth ? fmt.dateInput(student.dateOfBirth)
+                    : student?.dob         ? fmt.dateInput(student.dob) : '',
+    gender:           student?.gender || 'MALE',
+    phone:            student?.phone || '',
+    address:          student?.address || '',
+    classId:          student?.classSection?.class?.id || student?.class?.id || '',
+    sectionId:        student?.classSection?.id        || student?.section?.id || '',
+    religion:         student?.religion || '',
+    category:         student?.category || 'GENERAL',
+    bloodGroup:       student?.bloodGroup || '',
+    rollNumber:       student?.rollNumber || '',
+    fatherName:       student?.fatherName        || student?.parent?.fatherName || '',
+    motherName:       student?.motherName        || student?.parent?.motherName || '',
+    parentPhone:      student?.parentPhone       || student?.parent?.primaryPhone || '',
+    parentEmail:      student?.parentEmail       || student?.parent?.email || '',
+    parentOccupation: student?.parentOccupation  || student?.parent?.occupation || '',
+    emergencyContact: student?.guardianPhone     || student?.parent?.emergencyContact || '',
+    nationality:      student?.nationality || 'Indian',
+    aadharNumber:     student?.aadhaarNumber || student?.aadharNumber || '',
+    previousSchool:   student?.previousSchool || '',
   });
   const [sections, setSections] = useState<any[]>([]);
   const [saving, setSaving]     = useState(false);

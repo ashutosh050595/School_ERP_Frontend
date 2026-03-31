@@ -691,8 +691,9 @@ function StudentDirectory({ classes }: { classes: any[] }) {
   const [students,   setStudents]   = useState<any[]>([]);
   const [loading,    setLoading]    = useState(false);
   const [loaded,     setLoaded]     = useState(false);
-  const [selCols,    setSelCols]    = useState<ColKey[]>(DEFAULT_DIR_COLS);
-  const [showPicker, setShowPicker] = useState(false);
+  const [selCols,      setSelCols]      = useState<ColKey[]>(DEFAULT_DIR_COLS);
+  const [showPicker,   setShowPicker]   = useState(false);
+  const [dirEditItem,  setDirEditItem]  = useState<any>(null);
 
   // Sections derived from selected class (no extra API call needed)
   const sections: any[] = classId ? (classes.find((c: any) => c.id === classId)?.sections || []) : [];
@@ -700,6 +701,14 @@ function StudentDirectory({ classes }: { classes: any[] }) {
   // When class changes, clear section
   const handleClassChange = (id: string) => { setClassId(id); setSectionId(''); setLoaded(false); setStudents([]); };
   const handleSectionChange = (id: string) => { setSectionId(id); setLoaded(false); setStudents([]); };
+
+  const sortByRoll = (arr: any[]) =>
+    [...arr].sort((a, b) => {
+      const n1 = parseInt(a.rollNumber ?? '99999', 10);
+      const n2 = parseInt(b.rollNumber ?? '99999', 10);
+      if (!isNaN(n1) && !isNaN(n2)) return n1 - n2;
+      return (a.rollNumber ?? '').localeCompare(b.rollNumber ?? '');
+    });
 
   const fetchStudents = async () => {
     setLoading(true);
@@ -709,7 +718,8 @@ function StudentDirectory({ classes }: { classes: any[] }) {
       else if (classId) params.classId = classId;
       const r = await studentsApi.getAll(params);
       const data = r.data.data || [];
-      setStudents(Array.isArray(data) ? data : data.students || []);
+      const raw = Array.isArray(data) ? data : data.students || [];
+      setStudents(sortByRoll(raw));
       setLoaded(true);
     } catch { toast.error('Failed to load students'); }
     finally { setLoading(false); }
@@ -898,6 +908,7 @@ function StudentDirectory({ classes }: { classes: any[] }) {
                 <tr>
                   <th className="w-8">#</th>
                   {activeCols.map(c => <th key={c.key}>{c.label}</th>)}
+                  <th className="w-16 text-right">Edit</th>
                 </tr>
               </thead>
               <tbody>
@@ -916,6 +927,11 @@ function StudentDirectory({ classes }: { classes: any[] }) {
                         }
                       </td>
                     ))}
+                    <td className="text-right">
+                      <button onClick={() => setDirEditItem(s)} className="btn-icon" title="Edit student">
+                        <Edit className="w-3.5 h-3.5"/>
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -995,6 +1011,15 @@ function StudentDirectory({ classes }: { classes: any[] }) {
             </div>
           </div>
         </div>
+      )}
+
+      {dirEditItem && (
+        <StudentForm
+          student={dirEditItem}
+          onClose={() => setDirEditItem(null)}
+          onSuccess={() => { setDirEditItem(null); fetchStudents(); }}
+          classes={classes}
+        />
       )}
     </div>
   );

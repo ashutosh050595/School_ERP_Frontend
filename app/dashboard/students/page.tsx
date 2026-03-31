@@ -1,7 +1,8 @@
 'use client';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Search, Eye, Edit, Trash2, GraduationCap, Upload, Download, Filter, X, Camera, AlertCircle } from 'lucide-react';
+import { Plus, Search, Eye, Edit, Trash2, GraduationCap, Upload, Download, Filter, X, Camera, AlertCircle, FileText, FileSpreadsheet, SlidersHorizontal, Users, ChevronDown, CheckSquare, Square } from 'lucide-react';
 import { studentsApi, idcardsApi, api } from '@/lib/api';
+import * as XLSX from 'xlsx';
 import { fmt, downloadBlob, GENDERS, BLOOD_GROUPS, CATEGORIES } from '@/lib/utils';
 import { Modal, Confirm, Pagination, SearchInput, Empty, TableSkeleton, Avatar, Tabs } from '@/components/ui';
 import toast from 'react-hot-toast';
@@ -60,7 +61,7 @@ export default function StudentsPage() {
         <button onClick={()=>setShowAdd(true)} className="btn-primary"><Plus className="w-4 h-4"/>Admit Student</button>
       </div>
 
-      <Tabs tabs={[{key:'students',label:'All Students'},{key:'classes',label:'Classes & Sections'},{key:'photos',label:'Student Photos'},{key:'bulk',label:'⬆ Bulk Upload'}]} active={tab} onChange={setTab} />
+      <Tabs tabs={[{key:'students',label:'All Students'},{key:'directory',label:'📋 Directory'},{key:'classes',label:'Classes & Sections'},{key:'photos',label:'Student Photos'},{key:'bulk',label:'⬆ Bulk Upload'}]} active={tab} onChange={setTab} />
 
       {tab==='students' && <>
         <div className="card p-4 flex flex-wrap gap-3">
@@ -102,6 +103,7 @@ export default function StudentsPage() {
         </div>
       </>}
 
+      {tab==='directory' && <StudentDirectory classes={classes}/>}
       {tab==='classes' && <ClassesManager classes={classes} reload={()=>studentsApi.getClasses().then(r=>setClasses(r.data.data||[]))}/>}
       {tab==='photos'  && <PhotosManager classes={classes}/>}
       {tab==='bulk'    && <BulkUploadRedirect/>}
@@ -626,6 +628,374 @@ function BulkUploadRedirect() {
       <a href="/dashboard/students/bulk" className="btn-primary py-3 px-8 text-base">
         <Upload className="w-5 h-5"/>Open Bulk Upload
       </a>
+    </div>
+  );
+}
+
+// ─── Student Directory ────────────────────────────────────────────────────────
+
+const DIR_COLS = [
+  { key: 'admissionNumber', label: 'Adm. No.',          group: 'Academic' },
+  { key: 'rollNumber',      label: 'Roll No.',           group: 'Academic' },
+  { key: 'name',            label: 'Name',               group: 'Personal' },
+  { key: 'class',           label: 'Class',              group: 'Academic' },
+  { key: 'section',         label: 'Section',            group: 'Academic' },
+  { key: 'gender',          label: 'Gender',             group: 'Personal' },
+  { key: 'dateOfBirth',     label: 'Date of Birth',      group: 'Personal' },
+  { key: 'bloodGroup',      label: 'Blood Group',        group: 'Personal' },
+  { key: 'category',        label: 'Category',           group: 'Personal' },
+  { key: 'religion',        label: 'Religion',           group: 'Personal' },
+  { key: 'nationality',     label: 'Nationality',        group: 'Personal' },
+  { key: 'house',           label: 'House',              group: 'Academic' },
+  { key: 'phone',           label: 'Student Phone',      group: 'Contact'  },
+  { key: 'aadhaarNumber',   label: 'Aadhaar No.',        group: 'Personal' },
+  { key: 'address',         label: 'Address',            group: 'Contact'  },
+  { key: 'fatherName',      label: "Father's Name",      group: 'Family'   },
+  { key: 'motherName',      label: "Mother's Name",      group: 'Family'   },
+  { key: 'parentName',      label: 'Parent / Guardian',  group: 'Family'   },
+  { key: 'parentPhone',     label: 'Parent Phone',       group: 'Family'   },
+  { key: 'parentEmail',     label: 'Parent Email',       group: 'Family'   },
+  { key: 'parentOccupation',label: 'Parent Occupation',  group: 'Family'   },
+  { key: 'guardianName',    label: 'Guardian Name',      group: 'Family'   },
+  { key: 'guardianPhone',   label: 'Guardian Phone',     group: 'Family'   },
+  { key: 'admissionDate',   label: 'Admission Date',     group: 'Academic' },
+  { key: 'status',          label: 'Status',             group: 'Academic' },
+] as const;
+
+type ColKey = typeof DIR_COLS[number]['key'];
+
+const DEFAULT_DIR_COLS: ColKey[] = ['admissionNumber', 'rollNumber', 'name', 'class', 'section', 'gender', 'fatherName', 'parentPhone'];
+
+const getStudentVal = (s: any, key: ColKey): string => {
+  switch (key) {
+    case 'class':            return s.classSection?.class?.name || s.class?.name || '—';
+    case 'section':          return s.classSection?.section || s.section?.section || '—';
+    case 'dateOfBirth':      return s.dateOfBirth ? fmt.date(s.dateOfBirth) : '—';
+    case 'admissionDate':    return s.admissionDate ? fmt.date(s.admissionDate) : s.createdAt ? fmt.date(s.createdAt) : '—';
+    case 'status':           return s.isActive !== false ? 'Active' : 'Inactive';
+    case 'fatherName':       return s.fatherName || s.parent?.fatherName || '—';
+    case 'motherName':       return s.motherName || s.parent?.motherName || '—';
+    case 'parentName':       return s.parentName || '—';
+    case 'parentPhone':      return s.parentPhone || s.parent?.primaryPhone || '—';
+    case 'parentEmail':      return s.parentEmail || s.parent?.email || '—';
+    case 'parentOccupation': return s.parentOccupation || '—';
+    case 'guardianName':     return s.guardianName || '—';
+    case 'guardianPhone':    return s.guardianPhone || '—';
+    default:                 return (s as any)[key] || '—';
+  }
+};
+
+function StudentDirectory({ classes }: { classes: any[] }) {
+  const [classId,    setClassId]    = useState('');
+  const [sectionId,  setSectionId]  = useState('');
+  const [students,   setStudents]   = useState<any[]>([]);
+  const [loading,    setLoading]    = useState(false);
+  const [loaded,     setLoaded]     = useState(false);
+  const [selCols,    setSelCols]    = useState<ColKey[]>(DEFAULT_DIR_COLS);
+  const [showPicker, setShowPicker] = useState(false);
+
+  // Sections derived from selected class (no extra API call needed)
+  const sections: any[] = classId ? (classes.find((c: any) => c.id === classId)?.sections || []) : [];
+
+  // When class changes, clear section
+  const handleClassChange = (id: string) => { setClassId(id); setSectionId(''); setLoaded(false); setStudents([]); };
+  const handleSectionChange = (id: string) => { setSectionId(id); setLoaded(false); setStudents([]); };
+
+  const fetchStudents = async () => {
+    setLoading(true);
+    try {
+      const params: any = { limit: 2000 };
+      if (sectionId)  params.classSectionId = sectionId;
+      else if (classId) params.classId = classId;
+      const r = await studentsApi.getAll(params);
+      const data = r.data.data || [];
+      setStudents(Array.isArray(data) ? data : data.students || []);
+      setLoaded(true);
+    } catch { toast.error('Failed to load students'); }
+    finally { setLoading(false); }
+  };
+
+  // Derive label for filenames / PDF title
+  const filterLabel = (() => {
+    if (sectionId) {
+      const sec = sections.find((s: any) => s.id === sectionId);
+      const cls = classes.find((c: any) => c.id === classId);
+      return `${cls?.name || ''} - Section ${sec?.section || ''}`;
+    }
+    if (classId) return classes.find((c: any) => c.id === classId)?.name || 'Class';
+    return 'All Students';
+  })();
+
+  const activeCols = DIR_COLS.filter(c => selCols.includes(c.key));
+
+  // ─── Excel export ─────────────────────────────
+  const exportExcel = () => {
+    const rows = students.map((s, i) => {
+      const row: any = { '#': i + 1 };
+      activeCols.forEach(c => { row[c.label] = getStudentVal(s, c.key); });
+      return row;
+    });
+    const ws = XLSX.utils.json_to_sheet(rows);
+    // Auto-fit column widths
+    const colWidths = [{ wch: 4 }, ...activeCols.map(c => ({ wch: Math.max(c.label.length + 2, 12) }))];
+    ws['!cols'] = colWidths;
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Students');
+    XLSX.writeFile(wb, `students-${filterLabel.replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}.xlsx`);
+    toast.success('Excel downloaded!');
+  };
+
+  // ─── PDF export (print window) ────────────────
+  const exportPDF = () => {
+    const headerRow = `<tr><th>#</th>${activeCols.map(c => `<th>${c.label}</th>`).join('')}</tr>`;
+    const bodyRows  = students.map((s, i) =>
+      `<tr><td>${i + 1}</td>${activeCols.map(c => `<td>${getStudentVal(s, c.key)}</td>`).join('')}</tr>`
+    ).join('');
+
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8"/>
+  <title>Student Directory — ${filterLabel}</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 9px; color: #1a1a2e; padding: 16px; }
+    .header { text-align: center; margin-bottom: 12px; border-bottom: 2px solid #1e3a5f; padding-bottom: 8px; }
+    .header h1 { font-size: 14px; font-weight: 700; color: #1e3a5f; letter-spacing: 0.5px; }
+    .header p  { font-size: 9px; color: #64748b; margin-top: 3px; }
+    .meta { display: flex; justify-content: space-between; font-size: 8px; color: #64748b; margin-bottom: 10px; }
+    table { width: 100%; border-collapse: collapse; }
+    thead tr { background: #1e3a5f; }
+    th { color: #fff; padding: 5px 4px; text-align: left; font-size: 8px; font-weight: 600; white-space: nowrap; }
+    td { padding: 4px; border-bottom: 1px solid #e2e8f0; font-size: 8.5px; }
+    tr:nth-child(even) td { background: #f8fafc; }
+    tr:last-child td { border-bottom: none; }
+    @media print {
+      body { padding: 8px; }
+      @page { margin: 12mm 10mm; size: A4 landscape; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Sacred Heart School Koderma — Student Directory</h1>
+    <p>${filterLabel}</p>
+  </div>
+  <div class="meta">
+    <span>Total Students: <strong>${students.length}</strong></span>
+    <span>Generated: ${new Date().toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })}</span>
+  </div>
+  <table>
+    <thead>${headerRow}</thead>
+    <tbody>${bodyRows}</tbody>
+  </table>
+</body>
+</html>`;
+
+    const win = window.open('', '_blank');
+    if (!win) { toast.error('Popup blocked — please allow popups and try again'); return; }
+    win.document.write(html);
+    win.document.close();
+    setTimeout(() => win.print(), 600);
+  };
+
+  // ─── Column groups for picker ─────────────────
+  const groups = Array.from(new Set(DIR_COLS.map(c => c.group)));
+  const toggleCol = (key: ColKey) =>
+    setSelCols(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+  const selectAll  = () => setSelCols(DIR_COLS.map(c => c.key));
+  const selectNone = () => setSelCols([]);
+
+  return (
+    <div className="space-y-4">
+      {/* ── Filters row ────────────────────────── */}
+      <div className="card p-4">
+        <div className="flex flex-wrap items-end gap-3">
+          {/* Class */}
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Class</label>
+            <select value={classId} onChange={e => handleClassChange(e.target.value)} className="form-select w-44">
+              <option value="">All Classes</option>
+              {classes.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+
+          {/* Section — only if class selected */}
+          {classId && (
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Section</label>
+              <select value={sectionId} onChange={e => handleSectionChange(e.target.value)} className="form-select w-36">
+                <option value="">All Sections</option>
+                {sections.map((s: any) => <option key={s.id} value={s.id}>Section {s.section}</option>)}
+              </select>
+            </div>
+          )}
+
+          {/* Load button */}
+          <button onClick={fetchStudents} disabled={loading} className="btn-primary h-10">
+            {loading
+              ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>Loading…</>
+              : <><Users className="w-4 h-4"/>Load Students</>
+            }
+          </button>
+
+          {/* Clear */}
+          {(classId || sectionId) && (
+            <button onClick={() => { setClassId(''); setSectionId(''); setStudents([]); setLoaded(false); }} className="btn-ghost text-xs h-10">
+              <X className="w-3 h-3"/>Clear
+            </button>
+          )}
+
+          {/* Right side: column picker + downloads (only after load) */}
+          {loaded && students.length > 0 && (
+            <div className="ml-auto flex items-center gap-2">
+              <button onClick={() => setShowPicker(true)} className="btn-secondary h-10 text-sm">
+                <SlidersHorizontal className="w-4 h-4"/>Columns <span className="ml-1 bg-primary-100 text-primary-700 text-xs px-1.5 py-0.5 rounded-full font-bold">{selCols.length}</span>
+              </button>
+              <button onClick={exportExcel} className="btn-secondary h-10 text-sm text-emerald-700 border-emerald-200 hover:bg-emerald-50">
+                <FileSpreadsheet className="w-4 h-4 text-emerald-600"/>Excel
+              </button>
+              <button onClick={exportPDF} className="btn-secondary h-10 text-sm text-rose-700 border-rose-200 hover:bg-rose-50">
+                <FileText className="w-4 h-4 text-rose-600"/>PDF
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Filter summary badge */}
+        {loaded && (
+          <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-100">
+            <span className="text-xs text-slate-500">Showing:</span>
+            <span className="badge badge-blue text-xs">{filterLabel}</span>
+            <span className="text-xs font-semibold text-slate-700">{students.length} students</span>
+          </div>
+        )}
+      </div>
+
+      {/* ── Table ────────────────────────────────── */}
+      {!loaded && !loading && (
+        <div className="card p-14 text-center">
+          <div className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-4">
+            <Users className="w-7 h-7 text-slate-400"/>
+          </div>
+          <p className="font-semibold text-slate-600">Select filters and click Load Students</p>
+          <p className="text-sm text-slate-400 mt-1">Choose All Classes, a specific class, or a class + section</p>
+        </div>
+      )}
+
+      {loaded && students.length === 0 && (
+        <div className="card p-14 text-center">
+          <p className="font-semibold text-slate-600">No students found</p>
+          <p className="text-sm text-slate-400 mt-1">Try a different class or section</p>
+        </div>
+      )}
+
+      {loaded && students.length > 0 && (
+        <div className="card overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th className="w-8">#</th>
+                  {activeCols.map(c => <th key={c.key}>{c.label}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {students.map((s: any, i: number) => (
+                  <tr key={s.id}>
+                    <td className="text-xs text-slate-400 font-mono">{i + 1}</td>
+                    {activeCols.map(c => (
+                      <td key={c.key} className="text-sm">
+                        {c.key === 'admissionNumber'
+                          ? <span className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">{getStudentVal(s, c.key)}</span>
+                          : c.key === 'status'
+                          ? <span className={`badge ${getStudentVal(s, c.key) === 'Active' ? 'badge-green' : 'badge-red'}`}>{getStudentVal(s, c.key)}</span>
+                          : c.key === 'gender'
+                          ? <span className="badge badge-gray">{getStudentVal(s, c.key)}</span>
+                          : getStudentVal(s, c.key)
+                        }
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="px-4 py-3 border-t border-slate-100 bg-slate-50 rounded-b-xl flex items-center justify-between">
+            <p className="text-xs text-slate-500">{students.length} students · {activeCols.length} columns shown</p>
+            <div className="flex gap-2">
+              <button onClick={exportExcel} className="btn-ghost text-xs text-emerald-700">
+                <FileSpreadsheet className="w-3.5 h-3.5"/>Excel
+              </button>
+              <button onClick={exportPDF} className="btn-ghost text-xs text-rose-700">
+                <FileText className="w-3.5 h-3.5"/>PDF
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Column Picker Modal ───────────────────── */}
+      {showPicker && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setShowPicker(false); }}>
+          <div className="modal-box max-w-lg w-full max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between p-5 border-b border-slate-100">
+              <div>
+                <h2 className="font-display font-bold text-lg text-slate-800">Customise Columns</h2>
+                <p className="text-xs text-slate-400 mt-0.5">{selCols.length} of {DIR_COLS.length} selected</p>
+              </div>
+              <button onClick={() => setShowPicker(false)} className="btn-icon"><X className="w-4 h-4"/></button>
+            </div>
+
+            <div className="flex items-center gap-2 px-5 py-3 border-b border-slate-100 bg-slate-50">
+              <button onClick={selectAll}  className="btn-ghost text-xs py-1 px-2">Select All</button>
+              <button onClick={selectNone} className="btn-ghost text-xs py-1 px-2">Clear All</button>
+              <button onClick={() => setSelCols([...DEFAULT_DIR_COLS])} className="btn-ghost text-xs py-1 px-2">Reset Default</button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 p-5 space-y-5">
+              {groups.map(group => (
+                <div key={group}>
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">{group}</p>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {DIR_COLS.filter(c => c.group === group).map(c => {
+                      const on = selCols.includes(c.key);
+                      return (
+                        <button
+                          key={c.key}
+                          onClick={() => toggleCol(c.key)}
+                          className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm text-left transition-colors ${
+                            on
+                              ? 'bg-primary-50 border-primary-200 text-primary-800 font-medium'
+                              : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                          }`}
+                        >
+                          {on
+                            ? <CheckSquare className="w-4 h-4 text-primary-600 flex-shrink-0"/>
+                            : <Square className="w-4 h-4 text-slate-300 flex-shrink-0"/>
+                          }
+                          {c.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="p-5 border-t border-slate-100 flex gap-3">
+              <button onClick={() => setShowPicker(false)} className="btn-secondary flex-1 justify-center">Cancel</button>
+              <button
+                onClick={() => setShowPicker(false)}
+                disabled={selCols.length === 0}
+                className="btn-primary flex-1 justify-center"
+              >
+                Apply {selCols.length} Columns
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

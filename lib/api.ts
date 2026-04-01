@@ -82,11 +82,13 @@ export const examsApi = {
   deleteSubject: (id:string) => api.delete(`/exams/subjects/${id}`),
   enterMarks:    (d:any) => api.post('/exams/marks',d),
   getResults:    (p:any) => api.get('/exams/results',{params:p}),
+  getStudentResult: (studentId:string,termId:string) => api.get(`/exams/report-card/${studentId}`,{params:{termId}}),
 };
 
 // ─── Report Cards ──────────────────────────────────────
 export const reportCardsApi = {
-  generate:     (studentId:string,termId:string) => api.get(`/report-cards/${studentId}/${termId}`,{responseType:'blob'}),
+  generate:     (studentId:string,termId:string) => api.get(`/report-cards/student/${studentId}/download`,{params:{termId},responseType:'blob'}),
+  getResults:   (studentId:string,termId:string) => api.get(`/exams/report-card/${studentId}`,{params:{termId}}),
   bulkGenerate: (d:any) => api.post('/report-cards/bulk',d,{responseType:'blob'}),
 };
 
@@ -160,8 +162,8 @@ export const staffApi = {
   getOne:     (id:string) => api.get(`/users/${id}`),
   create:     (d:any) => api.post('/users',d),
   update:     (id:string,d:any) => api.put(`/users/${id}`,d),
-  deactivate: (id:string) => api.patch(`/users/${id}/deactivate`),
-  activate:   (id:string) => api.patch(`/users/${id}/activate`),
+  deactivate: (id:string) => api.patch(`/users/${id}/toggle-status`),
+  activate:   (id:string) => api.patch(`/users/${id}/toggle-status`),
   resetPassword:(id:string,d:any) => api.post(`/users/${id}/reset-password`,d),
 };
 

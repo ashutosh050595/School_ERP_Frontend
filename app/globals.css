@@ -98,3 +98,13 @@ body { background: var(--bg); color: var(--text); font-family: var(--font-outfit
 
 /* Input with icon */
 .input-icon-left { @apply absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none; }
+
+/* ── Browser autofill background fix ────────────────── */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 30px white inset !important;
+  -webkit-text-fill-color: #1e293b !important;
+  transition: background-color 5000s ease-in-out 0s;
+}

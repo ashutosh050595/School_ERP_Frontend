@@ -608,10 +608,12 @@ function MarksEntry() {
     const sheetCompMap: Record<string, string> = {};
     wb.SheetNames.forEach((name: string) => {
       const n = name.toLowerCase();
-      if (n.includes('notebook') || n.includes('note')) sheetCompMap[name] = 'NB';
-      else if (n.includes('enrichment') || n.includes('enrich')) sheetCompMap[name] = 'SE';
-      else if (n.includes('midterm') || n.includes('mid') || n.includes('annual') || n.includes('main')) sheetCompMap[name] = 'MAIN';
-      else sheetCompMap[name] = 'PT';  // default / periodic test / pre-mid
+      // IMPORTANT: check 'pre-' first — "Pre-MidTerm1" is PT, not MAIN
+      if (n.startsWith('pre') || n.includes('periodic') || n.includes('pre-')) sheetCompMap[name] = 'PT';
+      else if (n.includes('notebook') || n.includes('note')) sheetCompMap[name] = 'NB';
+      else if (n.includes('enrichment') || n.includes('enrich') || n.includes('sub enrich')) sheetCompMap[name] = 'SE';
+      else if (n.includes('midterm') || n.includes('mid') || n.includes('annual') || n.includes('main') || n.includes('term')) sheetCompMap[name] = 'MAIN';
+      else sheetCompMap[name] = 'PT';  // fallback
     });
 
     wb.SheetNames.forEach((sheetName: string) => {
@@ -631,7 +633,9 @@ function MarksEntry() {
         const colStr = String(h || '').trim();
         if (!colStr) return;
         // Extract base name: "HINDI(MAX-20)" → "HINDI", "Math(80)" → "Math"
-        const base = colStr.replace(/\s*[\(\[].*/i, '').trim();
+        // Strip marks info: "HINDI(MAX-20)" → "HINDI", "ENG GRA(MAX-20)" → "ENG GRA"
+        // Also handle formats like "Science(80)", "Social Science(MAX-5)"
+        const base = colStr.split('(')[0].split('[')[0].trim();
         // Extract max: parse number from parentheses
         const maxMatch = colStr.match(/\d+/g);
         const max = maxMatch ? parseInt(maxMatch[maxMatch.length - 1], 10) : (compCode === 'PT' ? 20 : compCode === 'MAIN' ? 80 : 5);

@@ -423,7 +423,7 @@ function MarksEntry() {
   const [students, setStudents] = useState<any[]>([]);
   // marks[studentId][subjectId] = value string
   const [marks, setMarks] = useState<Record<string, Record<string, string>>>({});
-  const [filters, setFilters] = useState({ termId: '', classId: '', sectionId: '', baseSubject: '' });
+  const [filters, setFilters] = useState({ termId: '', classId: '', sectionId: '', baseSubject: '', examType: 'FULL' }); // examType: PT | FULL
   const [loading, setLoading]  = useState(false);
   const [saving, setSaving]    = useState(false);
   const [bulkErrors, setBulkErrors] = useState<any[]>([]);
@@ -440,12 +440,15 @@ function MarksEntry() {
     )
   ).sort();
 
-  // Active subjects (component records) for current filter
+  // Active subjects filtered by examType
   const activeSubjects: any[] = subjects.filter((s: any) => {
-    const base = s.subjectName.split('|')[0];
-    const matchClass = !filters.classId || s.classId === filters.classId;
-    const matchBase  = !filters.baseSubject || filters.baseSubject === 'ALL' || base === filters.baseSubject;
-    return matchClass && matchBase;
+    const parts = s.subjectName.split('|');
+    const base  = parts[0];
+    const comp  = parts[1] || 'MAIN';
+    const matchClass   = !filters.classId || s.classId === filters.classId;
+    const matchBase    = !filters.baseSubject || filters.baseSubject === 'ALL' || base === filters.baseSubject;
+    const matchExamType = filters.examType === 'PT' ? comp === 'PT' : true;
+    return matchClass && matchBase && matchExamType;
   });
 
   useEffect(() => {
@@ -511,130 +514,181 @@ function MarksEntry() {
     } finally { setSaving(false); }
   };
 
-  // ── Template download — single sheet, all subjects as columns ──
+  // ── Template download — multi-sheet format matching school Excel standard ──
   const downloadTemplate = async () => {
     if (students.length === 0) return toast.error('Load students first');
-    if (activeSubjects.length === 0) return toast.error('No subjects');
     const XLSX = await import('xlsx');
 
-    const term = terms.find((t: any) => t.id === filters.termId);
-    const mainLabel = term?.termNumber === 2 ? 'Annual' : 'Mid Term';
+    const term      = terms.find((t: any) => t.id === filters.termId);
+    const cls       = classes.find((c: any) => c.id === filters.classId);
+    const termNum   = term?.termNumber ?? 1;
+    const mainLabel = termNum === 2 ? 'Annual' : 'MidTerm';
+    const termSuffix = `Term${termNum}`;
+    const isPTOnly  = filters.examType === 'PT';
 
-    // Build base subjects in order
+    // Get unique base subject names in sorted order
     const bases = Array.from(new Set(activeSubjects.map((s: any) => s.subjectName.split('|')[0]))).sort();
 
-    // Header rows
-    const subjectRow: any[]  = ['Roll No', 'Adm No', 'Student Name'];
-    const compRow: any[]     = ['', '', ''];
-    const maxRow: any[]      = ['', '', ''];
-    const weightRow: any[]   = ['', '', ''];
+    // Build student identity rows: ROLLNo, NAME, FNAME, CLROLL, ...marks...
+    const buildRows = (getMax: (base: string) => number, getVal: (s: any, base: string) => any = () => null) =>
+      students.map((s: any) => [
+        s.admissionNumber,
+        s.name,
+        s.fatherName || s.parentName || '',
+        s.rollNumber || '',
+        ...bases.map(base => getVal(s, base)),
+      ]);
 
-    bases.forEach(base => {
-      COMPONENTS.forEach(comp => {
-        const found = activeSubjects.find((s: any) => s.subjectName === `${base}|${comp.code}`);
-        subjectRow.push(base);
-        compRow.push(comp.code === 'MAIN' ? mainLabel : comp.label.replace(/\s*\(\d+\)/, ''));
-        maxRow.push(`Max: ${comp.max}`);
-        weightRow.push(comp.code === 'PT' ? 'Weighted → 10' : '');
-      });
-    });
-
-    const data: any[][] = [subjectRow, compRow, maxRow, weightRow];
-
-    students.forEach((s: any) => {
-      const row: any[] = [s.rollNumber || '', s.admissionNumber, s.name];
-      bases.forEach(base => {
-        COMPONENTS.forEach(() => { row.push(''); });
-      });
-      data.push(row);
-    });
+    const headerRow = (maxLabel: (base: string) => string) =>
+      ['ROLLNo', 'NAME', 'FNAME', 'CLROLL', ...bases.map(maxLabel)];
 
     const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet(data);
-    ws['!cols'] = [
-      { wch: 8 }, { wch: 14 }, { wch: 28 },
-      ...Array(bases.length * COMPONENTS.length).fill({ wch: 12 }),
-    ];
-    // Freeze first 4 header rows + 3 id columns
-    ws['!freeze'] = { xSplit: 3, ySplit: 4 };
-    XLSX.utils.book_append_sheet(wb, ws, 'Marks');
-    const cls   = classes.find((c: any) => c.id === filters.classId)?.name || 'Class';
-    const tName = term?.name || 'Term';
-    XLSX.writeFile(wb, `Marks_${tName}_${cls}.xlsx`);
-    toast.success('Template downloaded');
+
+    if (isPTOnly) {
+      // Single sheet — PT only
+      const data = [
+        headerRow(base => `${base}(MAX-20)`),
+        ...buildRows(() => 20),
+      ];
+      const ws = XLSX.utils.aoa_to_sheet(data);
+      ws['!cols'] = [{ wch: 18 }, { wch: 28 }, { wch: 28 }, { wch: 8 }, ...bases.map(() => ({ wch: 12 }))];
+      XLSX.utils.book_append_sheet(wb, ws, `Pre-${mainLabel}${termSuffix}`);
+    } else {
+      // Four sheets matching the school format
+      const sheets = [
+        {
+          name:  `Pre-${mainLabel}${termSuffix}`,
+          max:   20,
+          label: (base: string) => `${base}(MAX-20)`,
+        },
+        {
+          name:  `NoteBook${termSuffix}`,
+          max:   5,
+          label: (base: string) => `${base}(MAX-5)`,
+        },
+        {
+          name:  `SubEnrichment${termSuffix}`,
+          max:   5,
+          label: (base: string) => `${base}(MAX-5)`,
+        },
+        {
+          name:  `${mainLabel}${termSuffix}`,
+          max:   80,
+          label: (base: string) => `${base}(${termNum === 2 ? '80' : '80'})`,
+        },
+      ];
+
+      sheets.forEach(sh => {
+        const data = [
+          headerRow(sh.label),
+          ...buildRows(() => sh.max),
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(data);
+        ws['!cols'] = [{ wch: 18 }, { wch: 28 }, { wch: 28 }, { wch: 8 }, ...bases.map(() => ({ wch: 12 }))];
+        XLSX.utils.book_append_sheet(wb, ws, sh.name);
+      });
+    }
+
+    const fileName = `${cls?.name || 'Class'}_${termSuffix}${isPTOnly ? '_PT' : ''}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+    toast.success('Template downloaded — fill marks and upload');
   };
 
-  // ── Bulk upload ──
+  // ── Bulk upload — handles both PT-only (single sheet) and multi-sheet format ──
   const uploadBulkMarks = async (file: File) => {
     if (students.length === 0) return toast.error('Load students first');
-    const XLSX = await import('xlsx');
-    const ab   = await file.arrayBuffer();
-    const wb   = XLSX.read(ab);
-    const ws   = wb.Sheets[wb.SheetNames[0]];
-    const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-
-    // Find header rows: row with "adm" or "admission"
-    let subjectRowIdx = rows.findIndex(r => r.some((c: any) => String(c).toLowerCase().includes('student') || String(c).toLowerCase().includes('adm')));
-    if (subjectRowIdx === -1) subjectRowIdx = 0;
-    const compRowIdx  = subjectRowIdx + 1;
-    const dataStart   = subjectRowIdx + 4; // 4 header rows
-
-    const subjectRowData = rows[subjectRowIdx] || [];
-    const compRowData    = rows[compRowIdx]    || [];
-
-    // Build column map: colIdx → { base, compCode, subjectId, max }
-    const colMap: Array<{ base: string; compCode: string; subjectId: string; max: number } | null> = subjectRowData.map((_: any, ci: number) => {
-      if (ci < 3) return null; // roll, adm, name cols
-      const base     = String(subjectRowData[ci] || '').trim();
-      const compCode = String(compRowData[ci]    || '').trim().toUpperCase();
-      if (!base || !compCode) return null;
-      // map "MAIN" / "MID TERM" / "ANNUAL" → MAIN
-      const normalComp = ['MIDTERM','MID TERM','ANNUAL','MAIN'].some(x => compCode.includes(x)) ? 'MAIN' : compCode;
-      const key = `${base}|${normalComp}`;
-      const found = activeSubjects.find((s: any) => s.subjectName === key);
-      if (!found) return null;
-      return { base, compCode: normalComp, subjectId: found.id, max: found.maxMarks };
-    });
-
-    const admMap = new Map(students.map((s: any) => [String(s.admissionNumber).trim(), s]));
+    const XLSX    = await import('xlsx');
+    const ab      = await file.arrayBuffer();
+    const wb      = XLSX.read(ab);
+    const admMap  = new Map(students.map((s: any) => [String(s.admissionNumber).trim(), s]));
     const newMarks: Record<string, Record<string, string>> = JSON.parse(JSON.stringify(marks));
     const errors: any[] = [];
 
-    const dataRows = rows.slice(dataStart).filter(r => r.some((c: any) => c !== '' && c !== null));
-    dataRows.forEach((row: any[], ri: number) => {
-      const admNo   = String(row[1] || row[0] || '').trim();
-      const student = admMap.get(admNo);
-      if (!student) {
-        errors.push({ row: dataStart + ri + 1, admNo, name: '—', col: '—', marks: '—', issue: 'Admission number not found' });
-        return;
-      }
-      row.forEach((cell: any, ci: number) => {
-        if (ci < 3) return;
-        const colInfo = colMap[ci];
-        if (!colInfo) return;
-        const raw = String(cell).trim();
-        if (raw === '' || raw === '-') return;
-        const val = Number(raw);
-        if (isNaN(val)) {
-          errors.push({ row: dataStart + ri + 1, admNo, name: student.name, col: `${colInfo.base}/${colInfo.compCode}`, marks: raw, issue: 'Not a number' });
+    // Map sheet name → component code
+    const sheetCompMap: Record<string, string> = {};
+    wb.SheetNames.forEach((name: string) => {
+      const n = name.toLowerCase();
+      if (n.includes('notebook') || n.includes('note')) sheetCompMap[name] = 'NB';
+      else if (n.includes('enrichment') || n.includes('enrich')) sheetCompMap[name] = 'SE';
+      else if (n.includes('midterm') || n.includes('mid') || n.includes('annual') || n.includes('main')) sheetCompMap[name] = 'MAIN';
+      else sheetCompMap[name] = 'PT';  // default / periodic test / pre-mid
+    });
+
+    wb.SheetNames.forEach((sheetName: string) => {
+      const compCode = sheetCompMap[sheetName];
+      // If PT-only mode, only process PT sheets
+      if (filters.examType === 'PT' && compCode !== 'PT') return;
+
+      const ws   = wb.Sheets[sheetName];
+      const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      if (rows.length < 2) return;
+
+      const header   = rows[0];
+      // Find subject columns: those after CLROLL (col index 4+)
+      const subjectCols: Array<{ idx: number; base: string; max: number }> = [];
+      header.forEach((h: any, ci: number) => {
+        if (ci < 4) return;
+        const colStr = String(h || '').trim();
+        if (!colStr) return;
+        // Extract base name: "HINDI(MAX-20)" → "HINDI", "Math(80)" → "Math"
+        const base = colStr.replace(/\s*[\(\[].*/i, '').trim();
+        // Extract max: parse number from parentheses
+        const maxMatch = colStr.match(/\d+/g);
+        const max = maxMatch ? parseInt(maxMatch[maxMatch.length - 1], 10) : (compCode === 'PT' ? 20 : compCode === 'MAIN' ? 80 : 5);
+        if (base) subjectCols.push({ idx: ci, base, max });
+      });
+
+      const dataRows = rows.slice(1).filter(r => r[0] !== '' && r[0] != null);
+      dataRows.forEach((row: any[], ri: number) => {
+        const admNo  = String(row[0] || '').trim();
+        const student = admMap.get(admNo);
+        if (!student) {
+          if (admNo) errors.push({ row: ri+2, sheet: sheetName, admNo, name: '—', col: '—', marks: '—', issue: 'Admission number not found' });
           return;
         }
-        if (val < 0) {
-          errors.push({ row: dataStart + ri + 1, admNo, name: student.name, col: `${colInfo.base}/${colInfo.compCode}`, marks: val, issue: 'Negative marks' });
-          return;
-        }
-        if (val > colInfo.max) {
-          errors.push({ row: dataStart + ri + 1, admNo, name: student.name, col: `${colInfo.base}/${colInfo.compCode}`, marks: val, issue: `Exceeds max ${colInfo.max}` });
-          return;
-        }
-        if (!newMarks[student.id]) newMarks[student.id] = {};
-        newMarks[student.id][colInfo.subjectId] = String(val);
+
+        subjectCols.forEach(({ idx, base, max }) => {
+          const raw = String(row[idx] || '').trim();
+          if (!raw || raw === '-') return;
+          const val = Number(raw);
+          if (isNaN(val)) {
+            errors.push({ row: ri+2, sheet: sheetName, admNo, name: student.name, col: base, marks: raw, issue: 'Not a number' });
+            return;
+          }
+          if (val < 0) {
+            errors.push({ row: ri+2, sheet: sheetName, admNo, name: student.name, col: base, marks: val, issue: 'Negative marks' });
+            return;
+          }
+          if (val > max) {
+            errors.push({ row: ri+2, sheet: sheetName, admNo, name: student.name, col: base, marks: val, issue: `Exceeds max ${max}` });
+            return;
+          }
+          // Find matching ExamSubject record
+          const subjectKey = `${base}|${compCode}`;
+          // Try exact match, then case-insensitive
+          let sub = activeSubjects.find((s: any) => s.subjectName === subjectKey);
+          if (!sub) {
+            sub = activeSubjects.find((s: any) =>
+              s.subjectName.toLowerCase() === subjectKey.toLowerCase()
+            );
+          }
+          if (!sub) {
+            // Try partial match: any subject whose base name contains this base
+            sub = activeSubjects.find((s: any) => {
+              const sBase = s.subjectName.split('|')[0].toLowerCase();
+              return sBase === base.toLowerCase() && s.subjectName.endsWith(`|${compCode}`);
+            });
+          }
+          if (!sub) return; // subject not assigned, skip silently
+          if (!newMarks[student.id]) newMarks[student.id] = {};
+          newMarks[student.id][sub.id] = String(val);
+        });
       });
     });
 
     setBulkErrors(errors);
     setMarks(newMarks);
-    if (errors.length > 0) toast.error(`${errors.length} error(s) found — check table below`);
+    if (errors.length > 0) toast.error(`${errors.length} error(s) — check below`);
     else toast.success('Marks loaded — review and Save');
     if (bulkRef.current) bulkRef.current.value = '';
   };
@@ -676,6 +730,13 @@ function MarksEntry() {
           <select value={filters.baseSubject} onChange={e => f('baseSubject', e.target.value)} className="form-select w-44" disabled={!baseNames.length}>
             <option value="ALL">All Subjects</option>
             {baseNames.map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="form-label">Exam Type</label>
+          <select value={filters.examType} onChange={e => { f('examType', e.target.value); setStudents([]); setMarks({}); }} className="form-select w-44">
+            <option value="FULL">Full Term (PT+NB+SE+Main)</option>
+            <option value="PT">Periodic Test Only</option>
           </select>
         </div>
         <button onClick={loadStudents} disabled={!filters.termId || !filters.classId || loading} className="btn-primary">

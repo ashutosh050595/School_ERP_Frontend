@@ -90,16 +90,39 @@ export default function LoginPage() {
               <label className="form-label">Email Address</label>
               <div className="relative">
                 <Mail className="input-icon-left" />
-                <input type="email" value={form.email} onChange={e=>setForm(p=>({...p,email:e.target.value}))}
-                  className="form-input pl-10" placeholder="admin@school.edu" required autoComplete="email" />
+                <input
+                  type="email"
+                  value={form.email}
+                  onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
+                  onAnimationStart={e => {
+                    // Catches Chrome autofill (fires animation on :-webkit-autofill)
+                    if ((e as any).animationName === 'onAutoFillStart')
+                      setForm(p => ({ ...p, email: (e.target as HTMLInputElement).value }));
+                  }}
+                  className="form-input pl-10"
+                  placeholder="Enter Registered Email id"
+                  required
+                  autoComplete="username"
+                />
               </div>
             </div>
             <div>
               <label className="form-label">Password</label>
               <div className="relative">
                 <Lock className="input-icon-left" />
-                <input type={show?'text':'password'} value={form.password} onChange={e=>setForm(p=>({...p,password:e.target.value}))}
-                  className="form-input pl-10 pr-10" placeholder="••••••••" required autoComplete="current-password" />
+                <input
+                  type={show ? 'text' : 'password'}
+                  value={form.password}
+                  onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
+                  onAnimationStart={e => {
+                    if ((e as any).animationName === 'onAutoFillStart')
+                      setForm(p => ({ ...p, password: (e.target as HTMLInputElement).value }));
+                  }}
+                  className="form-input pl-10 pr-10"
+                  placeholder="••••••••"
+                  required
+                  autoComplete="current-password"
+                />
                 <button type="button" onClick={()=>setShow(!show)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
                   {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>

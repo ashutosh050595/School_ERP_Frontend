@@ -494,8 +494,16 @@ function MarksEntry() {
         return ra !== rb ? ra - rb : a.name.localeCompare(b.name);
       });
       setStudents(studs);
+      // Initialize marks with ALL subjects for this term+class (not just visible activeSubjects)
+      // so upload works correctly regardless of current examType filter.
+      const allClassSubjects = subjects.filter(
+        (s: any) => !filters.classId || s.classId === filters.classId
+      );
       const m: Record<string, Record<string, string>> = {};
-      studs.forEach((s: any) => { m[s.id] = {}; activeSubjects.forEach((sub: any) => { m[s.id][sub.id] = ''; }); });
+      studs.forEach((s: any) => {
+        m[s.id] = {};
+        allClassSubjects.forEach((sub: any) => { m[s.id][sub.id] = ''; });
+      });
       setMarks(m);
     } catch { toast.error('Failed to load students'); }
     finally { setLoading(false); }
@@ -507,13 +515,15 @@ function MarksEntry() {
   const saveMarks = async () => {
     setSaving(true);
     try {
+      // Save ALL subject IDs present in marks state (not just visible activeSubjects)
+      // so that PT/NB/SE/MAIN all get saved even if examType filter is active.
       const bySubject: Record<string, Array<{ studentId: string; marksObtained: number }>> = {};
       students.forEach((s: any) => {
-        activeSubjects.forEach((sub: any) => {
-          const val = marks[s.id]?.[sub.id];
+        const studentMarks = marks[s.id] || {};
+        Object.entries(studentMarks).forEach(([subId, val]) => {
           if (val !== '' && val !== undefined) {
-            if (!bySubject[sub.id]) bySubject[sub.id] = [];
-            bySubject[sub.id].push({ studentId: s.id, marksObtained: Number(val) });
+            if (!bySubject[subId]) bySubject[subId] = [];
+            bySubject[subId].push({ studentId: s.id, marksObtained: Number(val) });
           }
         });
       });
@@ -625,12 +635,27 @@ function MarksEntry() {
     const ab     = await file.arrayBuffer();
     const wb     = XLSX.read(ab);
     const admMap = new Map(students.map((s: any) => [String(s.admissionNumber).trim(), s]));
-    const newMarks: Record<string, Record<string, string>> = JSON.parse(JSON.stringify(marks));
+
+    // KEY FIX: use raw `subjects` (all components, regardless of examType filter)
+    // so that PT/NB/SE/MAIN all load correctly even when examType='PT'.
+    const uploadSubjects = subjects.filter(
+      (s: any) => !filters.classId || s.classId === filters.classId
+    );
+
+    // Build a full marks map that includes ALL subject IDs (not just activeSubjects)
+    const newMarks: Record<string, Record<string, string>> = {};
+    students.forEach((s: any) => {
+      newMarks[s.id] = { ...marks[s.id] }; // keep any already-typed values
+      uploadSubjects.forEach((sub: any) => {
+        if (!(sub.id in newMarks[s.id])) newMarks[s.id][sub.id] = '';
+      });
+    });
+
     const errors: any[] = [];
 
     // Components that actually have subjects assigned in DB for this term+class
     const availableComps = new Set(
-      activeSubjects.map((s: any) => (s.subjectName.split('|')[1] || 'MAIN'))
+      uploadSubjects.map((s: any) => (s.subjectName.split('|')[1] || 'MAIN'))
     );
 
     // Map sheet name to component code
@@ -687,12 +712,12 @@ function MarksEntry() {
         const max = digits ? parseInt(digits[digits.length - 1], 10)
                            : (compCode === 'PT' ? 20 : compCode === 'MAIN' ? 80 : 5);
 
-        // Find matching subject in DB
+        // Find matching subject in DB — use raw uploadSubjects (not filtered activeSubjects)
         const key = base + '|' + compCode;
         const sub: any = (
-          activeSubjects.find((s: any) => s.subjectName === key) ||
-          activeSubjects.find((s: any) => s.subjectName.toLowerCase() === key.toLowerCase()) ||
-          activeSubjects.find((s: any) => {
+          uploadSubjects.find((s: any) => s.subjectName === key) ||
+          uploadSubjects.find((s: any) => s.subjectName.toLowerCase() === key.toLowerCase()) ||
+          uploadSubjects.find((s: any) => {
             const sBase = s.subjectName.split('|')[0].toLowerCase();
             return sBase === base.toLowerCase() && s.subjectName.endsWith('|' + compCode);
           })

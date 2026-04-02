@@ -617,110 +617,154 @@ function MarksEntry() {
       : 'Template downloaded — fill marks and upload');
   };
 
-  // ── Bulk upload — handles both PT-only (single sheet) and multi-sheet format ──
+  // ── Bulk upload ──────────────────────────────────────────────────────────────
   const uploadBulkMarks = async (file: File) => {
     if (students.length === 0) return toast.error('Load students first');
-    const XLSX    = await import('xlsx');
-    const ab      = await file.arrayBuffer();
-    const wb      = XLSX.read(ab);
-    const admMap  = new Map(students.map((s: any) => [String(s.admissionNumber).trim(), s]));
+
+    const XLSX   = await import('xlsx');
+    const ab     = await file.arrayBuffer();
+    const wb     = XLSX.read(ab);
+    const admMap = new Map(students.map((s: any) => [String(s.admissionNumber).trim(), s]));
     const newMarks: Record<string, Record<string, string>> = JSON.parse(JSON.stringify(marks));
     const errors: any[] = [];
 
-    // Map sheet name → component code
+    // Components that actually have subjects assigned in DB for this term+class
+    const availableComps = new Set(
+      activeSubjects.map((s: any) => (s.subjectName.split('|')[1] || 'MAIN'))
+    );
+
+    // Map sheet name to component code
     const sheetCompMap: Record<string, string> = {};
     wb.SheetNames.forEach((name: string) => {
       const n = name.toLowerCase();
-      // IMPORTANT: check 'pre-' first — "Pre-MidTerm1" is PT, not MAIN
-      if (n.startsWith('pre') || n.includes('periodic') || n.includes('pre-')) sheetCompMap[name] = 'PT';
-      else if (n.includes('notebook') || n.includes('note')) sheetCompMap[name] = 'NB';
-      else if (n.includes('enrichment') || n.includes('enrich') || n.includes('sub enrich')) sheetCompMap[name] = 'SE';
-      else if (n.includes('midterm') || n.includes('mid') || n.includes('annual') || n.includes('main') || n.includes('term')) sheetCompMap[name] = 'MAIN';
-      else sheetCompMap[name] = 'PT';  // fallback
+      if (n.startsWith('pre') || n.includes('periodic')) sheetCompMap[name] = 'PT';
+      else if (n.includes('notebook') || n.includes('note'))     sheetCompMap[name] = 'NB';
+      else if (n.includes('enrichment') || n.includes('enrich')) sheetCompMap[name] = 'SE';
+      else if (n.includes('annual') || n.includes('midterm') || n.includes('mid') || n.includes('main')) sheetCompMap[name] = 'MAIN';
+      else if (n.includes('term'))   sheetCompMap[name] = 'MAIN';
+      else                           sheetCompMap[name] = 'PT';
     });
+
+    let totalLoaded = 0;
+    const sheetReport: string[] = [];
 
     wb.SheetNames.forEach((sheetName: string) => {
       const compCode = sheetCompMap[sheetName];
-      // If PT-only mode, only process PT sheets
+
+      // Skip if PT-only mode and this isn't PT
       if (filters.examType === 'PT' && compCode !== 'PT') return;
+
+      // Skip COSCHOLASTICS / WORKING DAYS type sheets
+      const n = sheetName.toLowerCase();
+      if (n.includes('coscholastic') || n.includes('working') || n.includes('attendance')) return;
+
+      // KEY CHECK: this component must exist in DB for this term
+      if (!availableComps.has(compCode)) {
+        errors.push({
+          row: '—', sheet: sheetName, admNo: '—', name: '—', col: '—', marks: '—',
+          issue: `Component "${compCode}" not assigned in DB. Open Exam Terms → click "${filters.termId ? 'the term' : 'your term'}" → Assign Subjects → make sure "${compCode}" toggle is checked → re-assign subjects.`,
+        });
+        return;
+      }
 
       const ws   = wb.Sheets[sheetName];
       const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
       if (rows.length < 2) return;
 
-      const header   = rows[0];
-      // Find subject columns: those after CLROLL (col index 4+)
-      const subjectCols: Array<{ idx: number; base: string; max: number }> = [];
+      const header = rows[0];
+
+      // Build column map: colIdx → { base, max, subjectId }
+      const subjectCols: Array<{ idx: number; base: string; max: number; subId: string }> = [];
       header.forEach((h: any, ci: number) => {
         if (ci < 4) return;
         const colStr = String(h || '').trim();
         if (!colStr) return;
-        // Extract base name: "HINDI(MAX-20)" → "HINDI", "Math(80)" → "Math"
-        // Strip marks info: "HINDI(MAX-20)" → "HINDI", "ENG GRA(MAX-20)" → "ENG GRA"
-        // Also handle formats like "Science(80)", "Social Science(MAX-5)"
         const base = colStr.split('(')[0].split('[')[0].trim();
-        // Extract max: parse number from parentheses
-        const maxMatch = colStr.match(/\d+/g);
-        const max = maxMatch ? parseInt(maxMatch[maxMatch.length - 1], 10) : (compCode === 'PT' ? 20 : compCode === 'MAIN' ? 80 : 5);
-        if (base) subjectCols.push({ idx: ci, base, max });
+        if (!base) return;
+
+        // Extract max marks from header like "Hindi(MAX-20)" or "Hindi(80)"
+        const digits = colStr.match(/[0-9]+/g);
+        const max = digits ? parseInt(digits[digits.length - 1], 10)
+                           : (compCode === 'PT' ? 20 : compCode === 'MAIN' ? 80 : 5);
+
+        // Find matching subject in DB
+        const key = base + '|' + compCode;
+        const sub: any = (
+          activeSubjects.find((s: any) => s.subjectName === key) ||
+          activeSubjects.find((s: any) => s.subjectName.toLowerCase() === key.toLowerCase()) ||
+          activeSubjects.find((s: any) => {
+            const sBase = s.subjectName.split('|')[0].toLowerCase();
+            return sBase === base.toLowerCase() && s.subjectName.endsWith('|' + compCode);
+          })
+        );
+
+        if (!sub) {
+          errors.push({
+            row: '—', sheet: sheetName, admNo: '—', name: '—', col: base, marks: '—',
+            issue: `Subject "${base}" not found in DB for component ${compCode}. Assign "${base}" subject to this term with ${compCode} component.`,
+          });
+          return;
+        }
+        subjectCols.push({ idx: ci, base, max, subId: sub.id });
       });
 
-      const dataRows = rows.slice(1).filter(r => r[0] !== '' && r[0] != null);
+      if (subjectCols.length === 0) return;
+
+      let sheetLoaded = 0;
+      const dataRows = rows.slice(1).filter((r: any[]) => r[0] !== '' && r[0] != null && r[0] !== undefined);
+
       dataRows.forEach((row: any[], ri: number) => {
-        const admNo  = String(row[0] || '').trim();
+        const admNo   = String(row[0] || '').trim();
         const student = admMap.get(admNo);
         if (!student) {
-          if (admNo) errors.push({ row: ri+2, sheet: sheetName, admNo, name: '—', col: '—', marks: '—', issue: 'Admission number not found' });
+          if (admNo) errors.push({ row: ri + 2, sheet: sheetName, admNo, name: '—', col: '—', marks: '—', issue: 'Admission number not found' });
           return;
         }
 
-        subjectCols.forEach(({ idx, base, max }) => {
-          const raw = String(row[idx] || '').trim();
-          if (!raw || raw === '-') return;
+        subjectCols.forEach(({ idx, base, max, subId }) => {
+          const raw = String(row[idx] !== undefined && row[idx] !== null ? row[idx] : '').trim();
+          if (raw === '' || raw === '-') return;
           const val = Number(raw);
           if (isNaN(val)) {
-            errors.push({ row: ri+2, sheet: sheetName, admNo, name: student.name, col: base, marks: raw, issue: 'Not a number' });
+            errors.push({ row: ri + 2, sheet: sheetName, admNo, name: student.name, col: base, marks: raw, issue: 'Not a valid number' });
             return;
           }
           if (val < 0) {
-            errors.push({ row: ri+2, sheet: sheetName, admNo, name: student.name, col: base, marks: val, issue: 'Negative marks' });
+            errors.push({ row: ri + 2, sheet: sheetName, admNo, name: student.name, col: base, marks: val, issue: 'Marks cannot be negative' });
             return;
           }
           if (val > max) {
-            errors.push({ row: ri+2, sheet: sheetName, admNo, name: student.name, col: base, marks: val, issue: `Exceeds max ${max}` });
+            errors.push({ row: ri + 2, sheet: sheetName, admNo, name: student.name, col: base, marks: val, issue: 'Exceeds max ' + max });
             return;
           }
-          // Find matching ExamSubject record
-          const subjectKey = `${base}|${compCode}`;
-          // Try exact match, then case-insensitive
-          let sub = activeSubjects.find((s: any) => s.subjectName === subjectKey);
-          if (!sub) {
-            sub = activeSubjects.find((s: any) =>
-              s.subjectName.toLowerCase() === subjectKey.toLowerCase()
-            );
-          }
-          if (!sub) {
-            // Try partial match: any subject whose base name contains this base
-            sub = activeSubjects.find((s: any) => {
-              const sBase = s.subjectName.split('|')[0].toLowerCase();
-              return sBase === base.toLowerCase() && s.subjectName.endsWith(`|${compCode}`);
-            });
-          }
-          if (!sub) return; // subject not assigned, skip silently
           if (!newMarks[student.id]) newMarks[student.id] = {};
-          newMarks[student.id][sub.id] = String(val);
+          newMarks[student.id][subId] = String(val);
+          sheetLoaded++;
         });
       });
+
+      totalLoaded += sheetLoaded;
+      sheetReport.push(sheetName + ' (' + compCode + '): ' + sheetLoaded + ' entries');
     });
 
     setBulkErrors(errors);
     setMarks(newMarks);
-    if (errors.length > 0) toast.error(`${errors.length} error(s) — check below`);
-    else toast.success('Marks loaded — review and Save');
+
+    const configErrors = errors.filter(e => e.row === '—').length;
+
+    if (configErrors > 0 && totalLoaded === 0) {
+      toast.error('Subjects not assigned in DB — see errors below', { duration: 8000 });
+    } else if (errors.length > 0) {
+      toast.error(errors.length + ' issue(s) found — ' + totalLoaded + ' marks loaded. Check errors below.', { duration: 5000 });
+    } else {
+      toast.success(totalLoaded + ' mark entries loaded (' + sheetReport.join(', ') + ') — click Save');
+    }
+
     if (bulkRef.current) bulkRef.current.value = '';
   };
 
-  const filledCount = students.filter((s: any) =>
+  const filledCount
+ = students.filter((s: any) =>
     activeSubjects.some((sub: any) => marks[s.id]?.[sub.id] !== '' && marks[s.id]?.[sub.id] !== undefined)
   ).length;
 

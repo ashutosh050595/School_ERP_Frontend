@@ -107,4 +107,25 @@ input:-webkit-autofill:active {
   -webkit-box-shadow: 0 0 0 30px white inset !important;
   -webkit-text-fill-color: #1e293b !important;
   transition: background-color 5000s ease-in-out 0s;
+  caret-color: #1e293b;
 }
+
+/* ── Fix autofill font so it matches the rest of the form ─ */
+input:-webkit-autofill::first-line {
+  font-family: inherit;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: #1e293b;
+}
+
+/* ── Ensure placeholder does NOT show on top of autofill ── */
+input:-webkit-autofill:not(:focus)::placeholder {
+  color: transparent !important;
+}
+
+/* ── Autofill detection keyframe (used in login.tsx onAnimationStart) ── */
+@keyframes onAutoFillStart { from {} to {} }
+@keyframes onAutoFillCancel { from {} to {} }
+
+input:-webkit-autofill { animation-name: onAutoFillStart; }
+input:not(:-webkit-autofill) { animation-name: onAutoFillCancel; }

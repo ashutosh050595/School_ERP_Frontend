@@ -1,7 +1,8 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
 import { Download, Eye, Users, FileBarChart, Printer, X, ChevronLeft, ChevronRight } from 'lucide-react';
-import { examsApi, studentsApi } from '@/lib/api';
+import { examsApi, studentsApi, api } from '@/lib/api';
+import { downloadBlob } from '@/lib/utils';
 import { Tabs, Empty } from '@/components/ui';
 import toast from 'react-hot-toast';
 
@@ -53,10 +54,28 @@ function SingleReport() {
     setLoading(true);
     try {
       const r = await examsApi.getStudentResult(student.id, termId);
-      setResult({ ...r.data.data, student, term: terms.find(t => t.id === termId) });
+      // r.data.data = { student, term, result: myResult }
+      // Flatten: spread myResult (subjects, grandTotal…) at top level
+      const apiData = r.data.data;
+      setResult({
+        ...(apiData.result || apiData),   // flatten subjects/grandTotal to top level
+        student,
+        term: terms.find(t => t.id === termId),
+      });
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Failed to generate report card');
     } finally { setLoading(false); }
+  };
+
+  const downloadPDF = async () => {
+    if (!student || !termId) return;
+    try {
+      const r = await api.get(`/exams/report-card/${student.id}/download`, {
+        params: { termId }, responseType: 'blob',
+      });
+      downloadBlob(r.data, `report-card-${student.admissionNumber}-${termId}.pdf`);
+      toast.success('PDF downloaded!');
+    } catch { toast.error('Failed to download PDF'); }
   };
 
   return (
@@ -102,6 +121,7 @@ function SingleReport() {
           student={result.student}
           term={result.term}
           onClose={() => setResult(null)}
+          onDownloadPDF={downloadPDF}
         />
       )}
     </div>
@@ -148,7 +168,7 @@ function BulkReport() {
       setStudents(studs);
       setResults(merged);
       setCurrentIdx(0);
-      toast.success(`${merged.length} report cards loaded`);
+      toast.success(`${merged.length} report cards loaded — use Print / Save PDF on each card`);
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Failed to generate');
     } finally { setLoading(false); }
@@ -216,7 +236,7 @@ function BulkReport() {
 // ─────────────────────────────────────────────────────────
 // Report Card Preview component
 // ─────────────────────────────────────────────────────────
-function ReportCardPreview({ result, student, term, onClose, inline }: any) {
+function ReportCardPreview({ result, student, term, onClose, inline, onDownloadPDF }: any) {
   const printRef = useRef<HTMLDivElement>(null);
 
   const handlePrint = () => {
@@ -373,8 +393,8 @@ function ReportCardPreview({ result, student, term, onClose, inline }: any) {
     return (
       <div className="space-y-3">
         <div className="flex justify-end gap-2">
-          <button onClick={handlePrint} className="btn-primary text-sm py-1.5">
-            <Printer className="w-4 h-4"/>Print / Save PDF
+          <button onClick={handlePrint} className="btn-ghost border border-slate-300 text-sm py-1.5 px-3">
+            <Printer className="w-4 h-4"/>Print / PDF
           </button>
         </div>
         <div className="card p-0 overflow-hidden">
@@ -389,6 +409,11 @@ function ReportCardPreview({ result, student, term, onClose, inline }: any) {
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-slate-700">Report Card Preview</h3>
         <div className="flex gap-2">
+          {onDownloadPDF && (
+            <button onClick={onDownloadPDF} className="btn-secondary text-sm py-1.5">
+              <Download className="w-4 h-4"/>Download PDF
+            </button>
+          )}
           <button onClick={handlePrint} className="btn-primary text-sm py-1.5">
             <Printer className="w-4 h-4"/>Print / Save PDF
           </button>

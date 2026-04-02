@@ -126,6 +126,7 @@ function TermDetail({ term, onClose }: any) {
   const [selections, setSelections] = useState<Map<string, Selection>>(new Map());
   const [assigning, setAssigning]   = useState(false);
   const [deleteBase, setDeleteBase] = useState<any|null>(null);
+  const [selectedComps, setSelectedComps] = useState<string[]>(['PT','NB','SE','MAIN']);
 
   const selKey = (classId: string, sectionId?: string) => sectionId ? `${classId}__${sectionId}` : classId;
 
@@ -190,9 +191,10 @@ function TermDetail({ term, onClose }: any) {
       validRows.forEach(row => {
         selections.forEach(sel => {
           subjectPayload.push({
-            termId:      term.id,
-            subjectName: row.name.trim(),
-            classId:     sel.classId,
+            termId:       term.id,
+            subjectName:  row.name.trim(),
+            classId:      sel.classId,
+            components:   selectedComps,
             ...(row.examDate ? { examDate: row.examDate } : {}),
           });
         });
@@ -247,9 +249,19 @@ function TermDetail({ term, onClose }: any) {
 
         {tab === 'assign' && (
           <div className="space-y-5">
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-700">
-              <span className="font-bold">Pattern:</span> Each subject is automatically split into 4 components:
-              PT (20→10) + Notebook (5) + Subject Enrichment (5) + {term.termNumber === 2 ? 'Annual' : 'Mid Term'} (80) = <span className="font-bold">100 marks</span>
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-700 space-y-2">
+              <p><span className="font-bold">Pattern:</span> PT (20→10) + Notebook (5) + Sub. Enrichment (5) + {term.termNumber === 2 ? 'Annual' : 'Mid Term'} (80) = <span className="font-bold">100 marks</span></p>
+              <p className="text-blue-600">Select which components to include for this term:</p>
+              <div className="flex flex-wrap gap-3">
+                {(['PT','NB','SE','MAIN'] as const).map(c => (
+                  <label key={c} className={`flex items-center gap-1.5 px-3 py-1 rounded-full border-2 cursor-pointer text-xs font-semibold transition-all ${selectedComps.includes(c)?'border-blue-500 bg-blue-600 text-white':'border-blue-300 text-blue-700 bg-white'}`}>
+                    <input type="checkbox" checked={selectedComps.includes(c)}
+                      onChange={() => setSelectedComps(p => p.includes(c) ? p.filter(x=>x!==c) : [...p,c])}
+                      className="hidden"/>
+                    {c==='PT'?'PT (20→10)':c==='NB'?'Notebook (5)':c==='SE'?'Sub.Enrich (5)':term.termNumber===2?'Annual (80)':'Mid Term (80)'}
+                  </label>
+                ))}
+              </div>
             </div>
 
             <div>
@@ -519,79 +531,90 @@ function MarksEntry() {
     if (students.length === 0) return toast.error('Load students first');
     const XLSX = await import('xlsx');
 
-    const term      = terms.find((t: any) => t.id === filters.termId);
-    const cls       = classes.find((c: any) => c.id === filters.classId);
-    const termNum   = term?.termNumber ?? 1;
-    const mainLabel = termNum === 2 ? 'Annual' : 'MidTerm';
+    const term       = terms.find((t: any) => t.id === filters.termId);
+    const cls        = classes.find((c: any) => c.id === filters.classId);
+    const termNum    = term?.termNumber ?? 1;
+    const mainLabel  = termNum === 2 ? 'Annual' : 'MidTerm';
     const termSuffix = `Term${termNum}`;
-    const isPTOnly  = filters.examType === 'PT';
+    const isPTOnly   = filters.examType === 'PT';
 
-    // Get unique base subject names in sorted order
     const bases = Array.from(new Set(activeSubjects.map((s: any) => s.subjectName.split('|')[0]))).sort();
 
-    // Build student identity rows: ROLLNo, NAME, FNAME, CLROLL, ...marks...
-    const buildRows = (getMax: (base: string) => number, getVal: (s: any, base: string) => any = () => null) =>
+    // ── Fetch existing saved marks to pre-fill the template ──────────────
+    let existingResults: any[] = [];
+    try {
+      const r = await examsApi.getResults({ termId: filters.termId, classId: filters.classId });
+      existingResults = r.data.data || [];
+    } catch { /* no saved marks yet — template will be blank */ }
+
+    // Map: admissionNumber → SubjectResult[]
+    const savedMap = new Map<string, Record<string, Record<string, number>>>();
+    existingResults.forEach((studentRes: any) => {
+      const admNo = students.find((s: any) => s.id === studentRes.studentId)?.admissionNumber
+                 || studentRes.admissionNumber;
+      if (!admNo) return;
+      const subMap: Record<string, Record<string, number>> = {};
+      (studentRes.subjects || []).forEach((sub: any) => {
+        subMap[sub.subjectName] = {
+          PT:   sub.ptObtained   ?? 0,
+          NB:   sub.nbObtained   ?? 0,
+          SE:   sub.seObtained   ?? 0,
+          MAIN: sub.mainObtained ?? 0,
+        };
+      });
+      savedMap.set(String(admNo).trim(), subMap);
+    });
+
+    // Helper: get pre-filled value for a student+subject+component
+    const prefill = (student: any, base: string, comp: string): any => {
+      const admNo = String(student.admissionNumber).trim();
+      const val   = savedMap.get(admNo)?.[base]?.[comp];
+      if (val === undefined || val === 0) return '';
+      return val;
+    };
+
+    const headerRow = (maxLabel: (base: string) => string) =>
+      ['ROLLNo', 'NAME', 'FNAME', 'CLROLL', ...bases.map(maxLabel)];
+
+    const buildRows = (comp: string) =>
       students.map((s: any) => [
         s.admissionNumber,
         s.name,
         s.fatherName || s.parentName || '',
         s.rollNumber || '',
-        ...bases.map(base => getVal(s, base)),
+        ...bases.map(base => prefill(s, base, comp)),
       ]);
 
-    const headerRow = (maxLabel: (base: string) => string) =>
-      ['ROLLNo', 'NAME', 'FNAME', 'CLROLL', ...bases.map(maxLabel)];
-
+    const colWidths = [{ wch: 18 }, { wch: 28 }, { wch: 28 }, { wch: 8 }, ...bases.map(() => ({ wch: 14 }))];
     const wb = XLSX.utils.book_new();
 
     if (isPTOnly) {
-      // Single sheet — PT only
-      const data = [
-        headerRow(base => `${base}(MAX-20)`),
-        ...buildRows(() => 20),
-      ];
+      const data = [headerRow(base => `${base}(MAX-20)`), ...buildRows('PT')];
       const ws = XLSX.utils.aoa_to_sheet(data);
-      ws['!cols'] = [{ wch: 18 }, { wch: 28 }, { wch: 28 }, { wch: 8 }, ...bases.map(() => ({ wch: 12 }))];
+      ws['!cols'] = colWidths;
       XLSX.utils.book_append_sheet(wb, ws, `Pre-${mainLabel}${termSuffix}`);
     } else {
-      // Four sheets matching the school format
-      const sheets = [
-        {
-          name:  `Pre-${mainLabel}${termSuffix}`,
-          max:   20,
-          label: (base: string) => `${base}(MAX-20)`,
-        },
-        {
-          name:  `NoteBook${termSuffix}`,
-          max:   5,
-          label: (base: string) => `${base}(MAX-5)`,
-        },
-        {
-          name:  `SubEnrichment${termSuffix}`,
-          max:   5,
-          label: (base: string) => `${base}(MAX-5)`,
-        },
-        {
-          name:  `${mainLabel}${termSuffix}`,
-          max:   80,
-          label: (base: string) => `${base}(${termNum === 2 ? '80' : '80'})`,
-        },
+      const existingComps = new Set(activeSubjects.map((s: any) => s.subjectName.split('|')[1] || 'MAIN'));
+      const allSheets = [
+        { comp: 'PT',   name: `Pre-${mainLabel}${termSuffix}`, label: (b: string) => `${b}(MAX-20)` },
+        { comp: 'NB',   name: `NoteBook${termSuffix}`,         label: (b: string) => `${b}(MAX-5)`  },
+        { comp: 'SE',   name: `SubEnrichment${termSuffix}`,    label: (b: string) => `${b}(MAX-5)`  },
+        { comp: 'MAIN', name: `${mainLabel}${termSuffix}`,     label: (b: string) => `${b}(${mainLabel}-80)` },
       ];
-
-      sheets.forEach(sh => {
-        const data = [
-          headerRow(sh.label),
-          ...buildRows(() => sh.max),
-        ];
+      allSheets.filter(sh => existingComps.has(sh.comp)).forEach(sh => {
+        const data = [headerRow(sh.label), ...buildRows(sh.comp)];
         const ws = XLSX.utils.aoa_to_sheet(data);
-        ws['!cols'] = [{ wch: 18 }, { wch: 28 }, { wch: 28 }, { wch: 8 }, ...bases.map(() => ({ wch: 12 }))];
+        ws['!cols'] = colWidths;
         XLSX.utils.book_append_sheet(wb, ws, sh.name);
       });
     }
 
+    const hasPrefilled = existingResults.length > 0;
     const fileName = `${cls?.name || 'Class'}_${termSuffix}${isPTOnly ? '_PT' : ''}.xlsx`;
     XLSX.writeFile(wb, fileName);
-    toast.success('Template downloaded — fill marks and upload');
+    toast.success(hasPrefilled
+      ? 'Template downloaded with pre-filled marks — update and re-upload'
+      : 'Template downloaded — fill marks and upload');
   };
 
   // ── Bulk upload — handles both PT-only (single sheet) and multi-sheet format ──

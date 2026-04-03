@@ -470,8 +470,17 @@ function MarksEntry() {
 
   useEffect(() => {
     setSubjects([]); setStudents([]); setMarks({}); setBulkErrors([]);
-    if (filters.termId) examsApi.getSubjects(filters.termId).then(r => setSubjects(r.data.data || [])).catch(() => {});
-  }, [filters.termId]);
+    if (filters.termId) {
+      examsApi.getSubjects(filters.termId).then(r => setSubjects(r.data.data || [])).catch(() => {});
+      // Auto-select examType based on term name: if term name contains "PT" or "Periodic" → PT mode
+      const term = terms.find((t: any) => t.id === filters.termId);
+      if (term) {
+        const n = (term.name || '').toLowerCase();
+        const isPT = n.includes('periodic') || n.includes(' pt') || n.startsWith('pt') || n.endsWith(' pt');
+        setFilters(p => ({ ...p, examType: isPT ? 'PT' : 'FULL' }));
+      }
+    }
+  }, [filters.termId, terms]);
 
   useEffect(() => {
     setSections([]); setStudents([]); setMarks({}); setBulkErrors([]);
@@ -515,13 +524,12 @@ function MarksEntry() {
   const saveMarks = async () => {
     setSaving(true);
     try {
-      // Save ALL subject IDs present in marks state (not just visible activeSubjects)
-      // so that PT/NB/SE/MAIN all get saved even if examType filter is active.
+      // Build payload: one entry per subject with all student marks
       const bySubject: Record<string, Array<{ studentId: string; marksObtained: number }>> = {};
       students.forEach((s: any) => {
         const studentMarks = marks[s.id] || {};
         Object.entries(studentMarks).forEach(([subId, val]) => {
-          if (val !== '' && val !== undefined) {
+          if (val !== '' && val !== undefined && val !== null) {
             if (!bySubject[subId]) bySubject[subId] = [];
             bySubject[subId].push({ studentId: s.id, marksObtained: Number(val) });
           }
@@ -529,8 +537,27 @@ function MarksEntry() {
       });
       const payloads = Object.entries(bySubject).map(([subjectId, m]) => ({ subjectId, marks: m }));
       if (payloads.length === 0) { setSaving(false); return toast.error('No marks entered'); }
-      await Promise.all(payloads.map(p => examsApi.enterMarks(p)));
-      toast.success('All marks saved!');
+
+      // ── Sequential save to avoid DB connection pool exhaustion (500 errors) ──
+      // Fire requests one at a time instead of all simultaneously.
+      let saved = 0;
+      let failed = 0;
+      for (const payload of payloads) {
+        try {
+          await examsApi.enterMarks(payload);
+          saved++;
+        } catch {
+          failed++;
+        }
+      }
+
+      if (failed === 0) {
+        toast.success(`All marks saved! (${saved} subject groups)`);
+      } else if (saved > 0) {
+        toast.error(`${saved} saved, ${failed} failed — try again for the failed ones`);
+      } else {
+        toast.error('Save failed — check your connection and try again');
+      }
     } catch (err: any) {
       toast.error(err.response?.data?.message || err.message || 'Failed to save marks');
     } finally { setSaving(false); }
@@ -854,13 +881,17 @@ function MarksEntry() {
     if (bulkRef.current) bulkRef.current.value = '';
   };
 
-  const filledCount
- = students.filter((s: any) =>
-    activeSubjects.some((sub: any) => marks[s.id]?.[sub.id] !== '' && marks[s.id]?.[sub.id] !== undefined)
+  // All subjects for this term+class — used for TABLE DISPLAY (shows all 4 components always)
+  const allClassSubjects = subjects.filter(
+    (s: any) => !filters.classId || s.classId === filters.classId
+  );
+
+  const filledCount = students.filter((s: any) =>
+    allClassSubjects.some((sub: any) => marks[s.id]?.[sub.id] !== '' && marks[s.id]?.[sub.id] !== undefined)
   ).length;
 
-  // Group active subjects by base name for display
-  const activeBases = Array.from(new Set(activeSubjects.map((s: any) => s.subjectName.split('|')[0]))).sort();
+  // Base names from ALL subjects (not filtered by examType) so table always shows all bases
+  const activeBases = Array.from(new Set(allClassSubjects.map((s: any) => s.subjectName.split('|')[0]))).sort();
 
   return (
     <div className="space-y-4">
@@ -894,12 +925,53 @@ function MarksEntry() {
             {baseNames.map(n => <option key={n} value={n}>{n}</option>)}
           </select>
         </div>
-        <div>
-          <label className="form-label">Exam Type</label>
-          <select value={filters.examType} onChange={e => { f('examType', e.target.value); setStudents([]); setMarks({}); }} className="form-select w-44">
-            <option value="FULL">Full Term (PT+NB+SE+Main)</option>
-            <option value="PT">Periodic Test Only</option>
-          </select>
+        {/* ── Exam Mode Selector ─────────────────────────────────────────── */}
+        <div className="flex flex-col gap-1.5">
+          <label className="form-label">Exam Mode</label>
+          <div className="flex gap-1.5">
+            {/* PT button */}
+            <button
+              type="button"
+              onClick={() => { setFilters(p => ({ ...p, examType: 'PT' })); setStudents([]); setMarks({}); }}
+              className={
+                'flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg border-2 text-xs font-bold transition-all ' +
+                (filters.examType === 'PT'
+                  ? 'border-amber-500 bg-amber-50 text-amber-700 shadow-sm'
+                  : 'border-slate-200 bg-white text-slate-500 hover:border-amber-300 hover:text-amber-600')
+              }
+            >
+              <span className="text-sm">📝</span>
+              <span>Periodic Test</span>
+              <div className="flex gap-0.5 mt-0.5">
+                <span className={
+                  'px-1 py-0 rounded text-[9px] font-bold ' +
+                  (filters.examType === 'PT' ? 'bg-amber-500 text-white' : 'bg-slate-100 text-slate-400')
+                }>PT</span>
+              </div>
+            </button>
+            {/* FULL button */}
+            <button
+              type="button"
+              onClick={() => { setFilters(p => ({ ...p, examType: 'FULL' })); setStudents([]); setMarks({}); }}
+              className={
+                'flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg border-2 text-xs font-bold transition-all ' +
+                (filters.examType === 'FULL'
+                  ? 'border-primary-500 bg-primary-50 text-primary-700 shadow-sm'
+                  : 'border-slate-200 bg-white text-slate-500 hover:border-primary-300 hover:text-primary-600')
+              }
+            >
+              <span className="text-sm">📋</span>
+              <span>Full Term</span>
+              <div className="flex gap-0.5 mt-0.5">
+                {['PT','NB','SE','Main'].map(c => (
+                  <span key={c} className={
+                    'px-1 py-0 rounded text-[9px] font-bold ' +
+                    (filters.examType === 'FULL' ? 'bg-primary-500 text-white' : 'bg-slate-100 text-slate-400')
+                  }>{c}</span>
+                ))}
+              </div>
+            </button>
+          </div>
         </div>
         <button onClick={loadStudents} disabled={!filters.termId || !filters.classId || loading} className="btn-primary">
           {loading ? 'Loading…' : 'Load Students'}
@@ -920,6 +992,46 @@ function MarksEntry() {
           </>
         )}
       </div>
+
+      {/* ── Active components indicator ─────────────────────────────────── */}
+      {filters.termId && filters.classId && (
+        <div className={
+          'flex flex-wrap items-center gap-3 px-4 py-2.5 rounded-xl border text-sm ' +
+          (filters.examType === 'PT'
+            ? 'bg-amber-50 border-amber-200'
+            : 'bg-primary-50 border-primary-200')
+        }>
+          <span className={
+            'font-semibold text-xs uppercase tracking-wide ' +
+            (filters.examType === 'PT' ? 'text-amber-600' : 'text-primary-600')
+          }>
+            {filters.examType === 'PT' ? '📝 Periodic Test Mode' : '📋 Full Term Mode'}
+          </span>
+          <span className="text-slate-400 text-xs">Active components:</span>
+          {filters.examType === 'PT' ? (
+            <>
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-500 text-white text-xs font-bold">
+                PT <span className="opacity-75 font-normal">(enter /20 → saved as /10)</span>
+              </span>
+              <span className="text-xs text-amber-600 ml-auto">Only Periodic Test marks will be entered and uploaded</span>
+            </>
+          ) : (
+            <>
+              {[
+                { code: 'PT',   label: 'PT /20→10',  color: 'bg-violet-500' },
+                { code: 'NB',   label: 'Notebook /5', color: 'bg-blue-500'   },
+                { code: 'SE',   label: 'Sub.Enrich /5',color: 'bg-teal-500'  },
+                { code: 'MAIN', label: (terms.find((t:any)=>t.id===filters.termId)?.termNumber===2?'Annual':'Mid Term') + ' /80', color: 'bg-primary-600' },
+              ].map(c => (
+                <span key={c.code} className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full ${c.color} text-white text-xs font-bold`}>
+                  {c.code} <span className="opacity-80 font-normal text-[10px]">{c.label.split('/')[1] ? '/' + c.label.split('/')[1] : ''}</span>
+                </span>
+              ))}
+              <span className="text-xs text-primary-600 ml-auto">= 100 marks per subject</span>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Validation errors */}
       {bulkErrors.length > 0 && (
@@ -967,7 +1079,7 @@ function MarksEntry() {
               <tr>
                 {activeBases.map(base =>
                   COMPONENTS.map(comp => {
-                    const found = activeSubjects.find((s: any) => s.subjectName === `${base}|${comp.code}`);
+                    const found = allClassSubjects.find((s: any) => s.subjectName === `${base}|${comp.code}`);
                     return (
                       <th key={`${base}|${comp.code}`} className="text-center border-l border-slate-200 text-xs font-semibold whitespace-nowrap">
                         <div>{comp.label}</div>
@@ -983,7 +1095,7 @@ function MarksEntry() {
                 let tabIdx = si * activeBases.length * COMPONENTS.length;
                 const anyOver = activeBases.some(base =>
                   COMPONENTS.some(comp => {
-                    const sub = activeSubjects.find((x: any) => x.subjectName === `${base}|${comp.code}`);
+                    const sub = allClassSubjects.find((x: any) => x.subjectName === `${base}|${comp.code}`);
                     if (!sub) return false;
                     const v = marks[s.id]?.[sub.id];
                     return v !== '' && v !== undefined && Number(v) > comp.max;
@@ -999,8 +1111,9 @@ function MarksEntry() {
                     <td className="text-sm text-center text-slate-500">{s.rollNumber || '—'}</td>
                     {activeBases.map(base =>
                       COMPONENTS.map(comp => {
-                        const sub  = activeSubjects.find((x: any) => x.subjectName === `${base}|${comp.code}`);
+                        const sub = allClassSubjects.find((x: any) => x.subjectName === `${base}|${comp.code}`);
                         if (!sub) return <td key={`${base}|${comp.code}`} className="text-center text-slate-200 border-l border-slate-100">—</td>;
+                        const isEditable = !!activeSubjects.find((x: any) => x.subjectName === `${base}|${comp.code}`);
                         const val  = marks[s.id]?.[sub.id] ?? '';
                         const over = val !== '' && Number(val) > comp.max;
                         tabIdx++;
@@ -1009,10 +1122,16 @@ function MarksEntry() {
                             <input
                               type="number" min={0} max={comp.max}
                               value={val}
-                              onChange={e => setMark(s.id, sub.id, e.target.value)}
-                              tabIndex={tabIdx}
+                              onChange={e => isEditable ? setMark(s.id, sub.id, e.target.value) : undefined}
+                              readOnly={!isEditable}
+                              tabIndex={isEditable ? tabIdx : -1}
                               placeholder="—"
-                              className={'form-input text-center py-1 text-sm w-full ' + (over ? 'border-red-400 bg-red-50' : '')}
+                              className={
+                                'form-input text-center py-1 text-sm w-full ' +
+                                (over ? 'border-red-400 bg-red-50 ' : '') +
+                                (!isEditable && val ? 'bg-slate-50 text-slate-500 cursor-default ' : '') +
+                                (!isEditable && !val ? 'bg-slate-50 text-slate-300 cursor-default ' : '')
+                              }
                             />
                             {over && <p className="text-xs text-red-500 text-center">max {comp.max}</p>}
                           </td>

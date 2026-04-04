@@ -433,8 +433,10 @@ function MarksEntry() {
   const [sections, setSections] = useState<any[]>([]);
   const [subjects, setSubjects] = useState<any[]>([]);   // raw ExamSubject records
   const [students, setStudents] = useState<any[]>([]);
-  // marks[studentId][subjectId] = value string
+  // marks[studentId][subjectId] = value — used for save (API needs ID)
   const [marks, setMarks] = useState<Record<string, Record<string, string>>>({});
+  // marksByName[studentId][subjectName] = value — used for DISPLAY (immune to ID mismatch)
+  const [marksByName, setMarksByName] = useState<Record<string, Record<string, string>>>({}); 
   const [filters, setFilters] = useState({ termId: '', classId: '', sectionId: '', baseSubject: '', examType: 'FULL' }); // examType: PT | FULL
   const [loading, setLoading]  = useState(false);
   const [saving, setSaving]    = useState(false);
@@ -469,7 +471,7 @@ function MarksEntry() {
   }, []);
 
   useEffect(() => {
-    setSubjects([]); setStudents([]); setMarks({}); setBulkErrors([]);
+    setSubjects([]); setStudents([]); setMarks({}); setMarksByName({}); setBulkErrors([]);
     if (filters.termId) {
       examsApi.getSubjects(filters.termId).then(r => setSubjects(r.data.data || [])).catch(() => {});
       // Auto-select examType based on term name: if term name contains "PT" or "Periodic" → PT mode
@@ -483,11 +485,30 @@ function MarksEntry() {
   }, [filters.termId, terms]);
 
   useEffect(() => {
-    setSections([]); setStudents([]); setMarks({}); setBulkErrors([]);
+    setSections([]); setStudents([]); setMarks({}); setMarksByName({}); setBulkErrors([]);
     if (filters.classId) studentsApi.getSections(filters.classId).then(r => setSections(r.data.data || [])).catch(() => {});
   }, [filters.classId]);
 
-  useEffect(() => { setStudents([]); setMarks({}); setBulkErrors([]); }, [filters.sectionId, filters.baseSubject]);
+  useEffect(() => { setStudents([]); setMarks({}); setMarksByName({}); setBulkErrors([]); }, [filters.sectionId, filters.baseSubject]);
+
+  // Build marksByName from a marks-by-ID map + subjects array
+  // marksByName[studentId][subjectName] = value
+  const buildMarksByName = (
+    marksById: Record<string, Record<string, string>>,
+    subjectList: any[]
+  ): Record<string, Record<string, string>> => {
+    const byId: Record<string, string> = {}; // subjectId → subjectName
+    subjectList.forEach((sub: any) => { byId[sub.id] = sub.subjectName; });
+    const result: Record<string, Record<string, string>> = {};
+    Object.entries(marksById).forEach(([studentId, subMap]) => {
+      result[studentId] = {};
+      Object.entries(subMap).forEach(([subId, val]) => {
+        const name = byId[subId];
+        if (name) result[studentId][name] = val;
+      });
+    });
+    return result;
+  };
 
   const loadStudents = async () => {
     if (!filters.termId || !filters.classId) return toast.error('Select term and class');
@@ -514,12 +535,15 @@ function MarksEntry() {
         allClassSubjects.forEach((sub: any) => { m[s.id][sub.id] = ''; });
       });
       setMarks(m);
+      setMarksByName(buildMarksByName(m, allClassSubjects));
     } catch { toast.error('Failed to load students'); }
     finally { setLoading(false); }
   };
 
-  const setMark = (sid: string, subId: string, val: string) =>
+  const setMark = (sid: string, subId: string, subjectName: string, val: string) => {
     setMarks(p => ({ ...p, [sid]: { ...p[sid], [subId]: val } }));
+    setMarksByName(p => ({ ...p, [sid]: { ...p[sid], [subjectName]: val } }));
+  };
 
   const saveMarks = async () => {
     setSaving(true);
@@ -868,6 +892,16 @@ function MarksEntry() {
 
     setBulkErrors(errors);
     setMarks(newMarks);
+    // Build and set marksByName so table renders immediately using stable string keys
+    const newMarksByName: Record<string, Record<string, string>> = {};
+    students.forEach((s: any) => {
+      newMarksByName[s.id] = {};
+      allSubjects.forEach((sub: any) => {
+        const val = newMarks[s.id]?.[sub.id];
+        if (val !== undefined) newMarksByName[s.id][sub.subjectName] = val;
+      });
+    });
+    setMarksByName(newMarksByName);
 
     const configErrors = errors.filter(e => e.row === '—').length;
     if (totalLoaded === 0 && configErrors > 0) {
@@ -886,9 +920,10 @@ function MarksEntry() {
     (s: any) => !filters.classId || s.classId === filters.classId
   );
 
-  const filledCount = students.filter((s: any) =>
-    allClassSubjects.some((sub: any) => marks[s.id]?.[sub.id] !== '' && marks[s.id]?.[sub.id] !== undefined)
-  ).length;
+  const filledCount = students.filter((s: any) => {
+    const m = marksByName[s.id] || {};
+    return Object.values(m).some(v => v !== '' && v !== undefined);
+  }).length;
 
   // Base names from ALL subjects (not filtered by examType) so table always shows all bases
   const activeBases = Array.from(new Set(allClassSubjects.map((s: any) => s.subjectName.split('|')[0]))).sort();
@@ -932,7 +967,7 @@ function MarksEntry() {
             {/* PT button */}
             <button
               type="button"
-              onClick={() => { setFilters(p => ({ ...p, examType: 'PT' })); setStudents([]); setMarks({}); }}
+              onClick={() => { setFilters(p => ({ ...p, examType: 'PT' })); setStudents([]); setMarks({}); setMarksByName({}); }}
               className={
                 'flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg border-2 text-xs font-bold transition-all ' +
                 (filters.examType === 'PT'
@@ -952,7 +987,7 @@ function MarksEntry() {
             {/* FULL button */}
             <button
               type="button"
-              onClick={() => { setFilters(p => ({ ...p, examType: 'FULL' })); setStudents([]); setMarks({}); }}
+              onClick={() => { setFilters(p => ({ ...p, examType: 'FULL' })); setStudents([]); setMarks({}); setMarksByName({}); }}
               className={
                 'flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg border-2 text-xs font-bold transition-all ' +
                 (filters.examType === 'FULL'
@@ -1093,11 +1128,12 @@ function MarksEntry() {
             <tbody>
               {students.map((s: any, si: number) => {
                 let tabIdx = si * activeBases.length * COMPONENTS.length;
+                // Read from marksByName (stable string keys) — immune to subject-ID mismatch
+                const sMarks = marksByName[s.id] || {};
                 const anyOver = activeBases.some(base =>
                   COMPONENTS.some(comp => {
-                    const sub = allClassSubjects.find((x: any) => x.subjectName === `${base}|${comp.code}`);
-                    if (!sub) return false;
-                    const v = marks[s.id]?.[sub.id];
+                    const subName = `${base}|${comp.code}`;
+                    const v = sMarks[subName];
                     return v !== '' && v !== undefined && Number(v) > comp.max;
                   })
                 );
@@ -1111,18 +1147,26 @@ function MarksEntry() {
                     <td className="text-sm text-center text-slate-500">{s.rollNumber || '—'}</td>
                     {activeBases.map(base =>
                       COMPONENTS.map(comp => {
-                        const sub = allClassSubjects.find((x: any) => x.subjectName === `${base}|${comp.code}`);
-                        if (!sub) return <td key={`${base}|${comp.code}`} className="text-center text-slate-200 border-l border-slate-100">—</td>;
-                        const isEditable = !!activeSubjects.find((x: any) => x.subjectName === `${base}|${comp.code}`);
-                        const val  = marks[s.id]?.[sub.id] ?? '';
+                        const subName    = `${base}|${comp.code}`;
+                        // Check if this subject exists in DB at all
+                        const subExists  = !!allClassSubjects.find((x: any) => x.subjectName === subName);
+                        if (!subExists) return <td key={subName} className="text-center text-slate-200 border-l border-slate-100">—</td>;
+                        const isEditable = !!activeSubjects.find((x: any) => x.subjectName === subName);
+                        // Read value directly by name — no UUID lookup
+                        const val  = sMarks[subName] ?? '';
                         const over = val !== '' && Number(val) > comp.max;
                         tabIdx++;
+                        // For onChange we need the sub ID — look it up only when user types
                         return (
-                          <td key={`${base}|${comp.code}`} className="p-1 border-l border-slate-100">
+                          <td key={subName} className="p-1 border-l border-slate-100">
                             <input
                               type="number" min={0} max={comp.max}
                               value={val}
-                              onChange={e => isEditable ? setMark(s.id, sub.id, e.target.value) : undefined}
+                              onChange={e => {
+                                if (!isEditable) return;
+                                const sub = allClassSubjects.find((x: any) => x.subjectName === subName);
+                                if (sub) setMark(s.id, sub.id, subName, e.target.value);
+                              }}
                               readOnly={!isEditable}
                               tabIndex={isEditable ? tabIdx : -1}
                               placeholder="—"

@@ -22,12 +22,14 @@ export default function ExamsPage() {
         <div><h1 className="page-title">Exams & Marks</h1><p className="page-sub">PT · Notebook · Subject Enrichment · Mid Term / Annual</p></div>
       </div>
       <Tabs tabs={[
-        { key:'terms',   label:'Exam Terms'  },
-        { key:'marks',   label:'Enter Marks' },
-        { key:'results', label:'Results'     },
+        { key:'terms',   label:'Exam Terms'   },
+        { key:'marks',   label:'Enter Marks'  },
+        { key:'view',    label:'View / Update' },
+        { key:'results', label:'Results'      },
       ]} active={tab} onChange={setTab}/>
       {tab === 'terms'   && <ExamTerms/>}
       {tab === 'marks'   && <MarksEntry/>}
+      {tab === 'view'    && <ViewUpdateMarks/>}
       {tab === 'results' && <ExamResults/>}
     </div>
   );
@@ -1375,5 +1377,297 @@ function TermModal({ term, onClose, onSuccess }: any) {
         </div>
       </form>
     </Modal>
+  );
+}
+
+// ─────────────────────────────────────────────────────────
+// View / Update Marks
+// ─────────────────────────────────────────────────────────
+function ViewUpdateMarks() {
+  const [terms,    setTerms]    = useState<any[]>([]);
+  const [classes,  setClasses]  = useState<any[]>([]);
+  const [sections, setSections] = useState<any[]>([]);
+  const [subjects, setSubjects] = useState<any[]>([]); // raw ExamSubject records for this term+class
+  const [students, setStudents] = useState<any[]>([]);
+  const [filters,  setFilters]  = useState({ termId: '', classId: '', sectionId: '', subjectFilter: 'ALL' });
+  const [loading,  setLoading]  = useState(false);
+  const [saving,   setSaving]   = useState(false);
+  const [dirty,    setDirty]    = useState(false);
+
+  // marks[studentId][subjectName] = string value (by name — immune to ID mismatch)
+  const [editMarks, setEditMarks] = useState<Record<string, Record<string, string>>>({});
+
+  const f = (k: string, v: string) => setFilters(p => ({ ...p, [k]: v }));
+
+  useEffect(() => {
+    examsApi.getTerms().then(r => setTerms(r.data.data || [])).catch(() => {});
+    studentsApi.getClasses().then(r => setClasses(r.data.data || [])).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    setSections([]); setStudents([]); setSubjects([]); setEditMarks({}); setDirty(false);
+    if (filters.classId) studentsApi.getSections(filters.classId).then(r => setSections(r.data.data || [])).catch(() => {});
+  }, [filters.classId]);
+
+  useEffect(() => {
+    setStudents([]); setSubjects([]); setEditMarks({}); setDirty(false);
+  }, [filters.termId, filters.sectionId]);
+
+  const term      = terms.find((t: any) => t.id === filters.termId);
+  const mainLabel = (term?.termNumber ?? 1) === 2 ? 'Annual' : 'Mid Term';
+
+  // All base subject names available for this term+class
+  const baseNames: string[] = Array.from(
+    new Set(subjects.filter((s: any) => !filters.classId || s.classId === filters.classId)
+              .map((s: any) => s.subjectName.split('|')[0]))
+  ).sort();
+
+  // Subjects visible given the subject filter
+  const visibleBases = filters.subjectFilter === 'ALL' ? baseNames : baseNames.filter(b => b === filters.subjectFilter);
+
+  const load = async () => {
+    if (!filters.termId || !filters.classId) return toast.error('Select term and class');
+    setLoading(true);
+    try {
+      const [subjR, resultR, studR] = await Promise.all([
+        examsApi.getSubjects(filters.termId),
+        examsApi.getResults({ termId: filters.termId, classId: filters.classId }),
+        studentsApi.getAll({ classId: filters.classId, classSectionId: filters.sectionId || undefined, limit: 500 }),
+      ]);
+
+      const allSubjs: any[] = subjR.data.data || [];
+      setSubjects(allSubjs);
+
+      const results: any[] = resultR.data.data || [];
+      const studs: any[]   = (Array.isArray(studR.data.data) ? studR.data.data : [])
+        .sort((a: any, b: any) => parseInt(a.rollNumber || '9999') - parseInt(b.rollNumber || '9999'));
+      setStudents(studs);
+
+      // Pre-fill editMarks from result data (ptObtained, nbObtained, seObtained, mainObtained)
+      const m: Record<string, Record<string, string>> = {};
+      studs.forEach((s: any) => {
+        m[s.id] = {};
+        const res = results.find((r: any) => r.studentId === s.id);
+        if (res) {
+          (res.subjects || []).forEach((sub: any) => {
+            // sub.subjectName = base name (e.g. "ENGLISH")
+            // Store all four components
+            m[s.id][`${sub.subjectName}|PT`]   = sub.ptObtained   != null ? String(sub.ptObtained)   : '';
+            m[s.id][`${sub.subjectName}|NB`]   = sub.nbObtained   != null ? String(sub.nbObtained)   : '';
+            m[s.id][`${sub.subjectName}|SE`]   = sub.seObtained   != null ? String(sub.seObtained)   : '';
+            m[s.id][`${sub.subjectName}|MAIN`] = sub.mainObtained != null ? String(sub.mainObtained) : '';
+          });
+        }
+      });
+      setEditMarks(m);
+      setDirty(false);
+      toast.success(`Loaded ${studs.length} students`);
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Failed to load');
+    } finally { setLoading(false); }
+  };
+
+  const setCell = (studentId: string, subjectName: string, val: string) => {
+    setEditMarks(p => ({ ...p, [studentId]: { ...p[studentId], [subjectName]: val } }));
+    setDirty(true);
+  };
+
+  const save = async () => {
+    setSaving(true);
+    // Build bySubjectId: subjectId → [{studentId, marksObtained}]
+    // Need to resolve subjectName → subjectId from subjects array
+    const bySubId: Record<string, Array<{ studentId: string; marksObtained: number }>> = {};
+
+    students.forEach((s: any) => {
+      const sMarks = editMarks[s.id] || {};
+      Object.entries(sMarks).forEach(([subjectName, val]) => {
+        if (val === '' || val === undefined) return;
+        const sub = subjects.find((x: any) => x.subjectName === subjectName && (!filters.classId || x.classId === filters.classId));
+        if (!sub) return;
+        if (!bySubId[sub.id]) bySubId[sub.id] = [];
+        bySubId[sub.id].push({ studentId: s.id, marksObtained: Number(val) });
+      });
+    });
+
+    const payloads = Object.entries(bySubId).map(([subjectId, marks]) => ({ subjectId, marks }));
+    if (payloads.length === 0) { setSaving(false); return toast.error('No marks to save'); }
+
+    let saved = 0, failed = 0;
+    for (const payload of payloads) {
+      try { await examsApi.enterMarks(payload); saved++; }
+      catch { failed++; }
+    }
+    setSaving(false);
+    setDirty(false);
+    if (failed === 0) toast.success(`${saved} subject groups saved!`);
+    else toast.error(`${saved} saved, ${failed} failed`);
+  };
+
+  const changedCount = students.filter(s => {
+    const m = editMarks[s.id] || {};
+    return Object.values(m).some(v => v !== '' && v !== undefined);
+  }).length;
+
+  return (
+    <div className="space-y-4">
+      {/* ── Filter bar ─────────────────────────────────────────────── */}
+      <div className="card p-4 flex flex-wrap gap-3 items-end">
+        <div>
+          <label className="form-label">Term</label>
+          <select value={filters.termId} onChange={e => f('termId', e.target.value)} className="form-select w-40">
+            <option value="">Select</option>
+            {terms.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="form-label">Class</label>
+          <select value={filters.classId} onChange={e => f('classId', e.target.value)} className="form-select w-32">
+            <option value="">Select</option>
+            {classes.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="form-label">Section</label>
+          <select value={filters.sectionId} onChange={e => f('sectionId', e.target.value)} className="form-select w-28" disabled={!sections.length}>
+            <option value="">All</option>
+            {sections.map((s: any) => <option key={s.id} value={s.id}>{s.section}</option>)}
+          </select>
+        </div>
+        <button onClick={load} disabled={!filters.termId || !filters.classId || loading} className="btn-primary">
+          {loading ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>Loading…</> : 'Load Marks'}
+        </button>
+
+        {/* Subject filter — appears after load */}
+        {baseNames.length > 0 && (
+          <div className="ml-2">
+            <label className="form-label">Subject</label>
+            <select value={filters.subjectFilter} onChange={e => f('subjectFilter', e.target.value)} className="form-select w-48">
+              <option value="ALL">All Subjects</option>
+              {baseNames.map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </div>
+        )}
+
+        {/* Save button — right side */}
+        {students.length > 0 && (
+          <button
+            onClick={save}
+            disabled={saving || !dirty}
+            className={'ml-auto btn-primary ' + (dirty ? 'bg-emerald-600 hover:bg-emerald-700' : 'opacity-50 cursor-not-allowed')}
+          >
+            {saving
+              ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>Saving…</>
+              : <><Save className="w-4 h-4"/>{dirty ? `Save Changes (${changedCount} students)` : 'No changes'}</>
+            }
+          </button>
+        )}
+      </div>
+
+      {/* ── Empty / loading state ───────────────────────────────────── */}
+      {loading && (
+        <div className="card p-10 text-center">
+          <div className="w-7 h-7 border-2 border-primary-600 border-t-transparent rounded-full animate-spin mx-auto"/>
+        </div>
+      )}
+
+      {!loading && students.length === 0 && (
+        <div className="card p-12 text-center text-slate-400 text-sm">
+          Select term, class and click Load Marks
+        </div>
+      )}
+
+      {/* ── Marks table ────────────────────────────────────────────── */}
+      {!loading && students.length > 0 && (
+        <div className="card overflow-auto">
+          <table className="tbl" style={{ minWidth: '700px' }}>
+            <thead>
+              {/* Row 1: Subject group headers */}
+              <tr>
+                <th rowSpan={2} className="w-8 text-center">#</th>
+                <th rowSpan={2}>Student</th>
+                <th rowSpan={2} className="w-14 text-center">Roll</th>
+                {visibleBases.map(base => (
+                  <th key={base} colSpan={4} className="text-center border-l-2 border-slate-300 bg-primary-50 text-primary-700 font-bold">
+                    {base}
+                  </th>
+                ))}
+              </tr>
+              {/* Row 2: PT / NB / SE / MAIN sub-headers */}
+              <tr>
+                {visibleBases.map(base => (
+                  ['PT','NB','SE','MAIN'].map(comp => {
+                    const maxLabel = comp === 'PT' ? '/20' : comp === 'MAIN' ? '/80' : '/5';
+                    const compLabel = comp === 'MAIN' ? mainLabel : comp;
+                    return (
+                      <th key={`${base}|${comp}`} className="text-center border-l border-slate-200 text-xs font-semibold whitespace-nowrap py-1.5">
+                        <div className="font-bold">{compLabel}</div>
+                        <div className="text-slate-400 font-normal text-[10px]">{maxLabel}</div>
+                      </th>
+                    );
+                  })
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {students.map((s: any, si: number) => {
+                const sMarks = editMarks[s.id] || {};
+                const hasAny = Object.values(sMarks).some(v => v !== '');
+                return (
+                  <tr key={s.id} className={hasAny ? '' : 'bg-slate-50/50'}>
+                    <td className="text-xs text-slate-400 text-center">{si + 1}</td>
+                    <td>
+                      <p className="font-medium text-sm leading-tight">{s.name}</p>
+                      <p className="text-xs text-slate-400 font-mono">{s.admissionNumber}</p>
+                    </td>
+                    <td className="text-sm text-center text-slate-500">{s.rollNumber || '—'}</td>
+
+                    {visibleBases.map(base =>
+                      (['PT','NB','SE','MAIN'] as const).map(comp => {
+                        const subjectName = `${base}|${comp}`;
+                        const max = comp === 'PT' ? 20 : comp === 'MAIN' ? 80 : 5;
+                        const val = sMarks[subjectName] ?? '';
+                        const over = val !== '' && Number(val) > max;
+                        const empty = val === '';
+                        return (
+                          <td key={subjectName} className={`p-1 border-l border-slate-100 ${comp === 'PT' ? 'border-l-slate-200' : ''}`}>
+                            <input
+                              type="number"
+                              min={0}
+                              max={max}
+                              value={val}
+                              placeholder="—"
+                              onChange={e => setCell(s.id, subjectName, e.target.value)}
+                              className={
+                                'form-input text-center py-1 text-sm w-full min-w-[52px] ' +
+                                (over  ? 'border-red-400 bg-red-50 text-red-700 ' : '') +
+                                (empty ? 'bg-slate-50 text-slate-300 ' : 'bg-white text-slate-800 font-medium ')
+                              }
+                            />
+                            {over && <p className="text-[10px] text-red-500 text-center">max {max}</p>}
+                          </td>
+                        );
+                      })
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+
+          {/* Footer summary */}
+          <div className="px-4 py-3 border-t border-slate-100 bg-slate-50 rounded-b-xl flex items-center justify-between">
+            <p className="text-xs text-slate-500">
+              {students.length} students · {visibleBases.length} subject{visibleBases.length !== 1 ? 's' : ''} shown
+              {filters.subjectFilter !== 'ALL' && <span className="ml-2 badge badge-blue">{filters.subjectFilter}</span>}
+            </p>
+            {dirty && (
+              <button onClick={save} disabled={saving} className="btn-primary text-sm py-1.5 bg-emerald-600 hover:bg-emerald-700">
+                <Save className="w-3.5 h-3.5"/>Save Changes
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

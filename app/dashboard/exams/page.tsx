@@ -1443,19 +1443,21 @@ function ViewUpdateMarks() {
         .sort((a: any, b: any) => parseInt(a.rollNumber || '9999') - parseInt(b.rollNumber || '9999'));
       setStudents(studs);
 
-      // Pre-fill editMarks from result data (ptObtained, nbObtained, seObtained, mainObtained)
+      // Pre-fill editMarks from result data
+      // IMPORTANT: backend returns 0 (not null) when no mark record exists (uses ?? 0 default).
+      // We only pre-fill a cell when the value is > 0 so unenterd cells stay blank.
+      // Legitimately-entered 0 marks will also show blank (acceptable edge case).
       const m: Record<string, Record<string, string>> = {};
       studs.forEach((s: any) => {
         m[s.id] = {};
         const res = results.find((r: any) => r.studentId === s.id);
         if (res) {
           (res.subjects || []).forEach((sub: any) => {
-            // sub.subjectName = base name (e.g. "ENGLISH")
-            // Store all four components
-            m[s.id][`${sub.subjectName}|PT`]   = sub.ptObtained   != null ? String(sub.ptObtained)   : '';
-            m[s.id][`${sub.subjectName}|NB`]   = sub.nbObtained   != null ? String(sub.nbObtained)   : '';
-            m[s.id][`${sub.subjectName}|SE`]   = sub.seObtained   != null ? String(sub.seObtained)   : '';
-            m[s.id][`${sub.subjectName}|MAIN`] = sub.mainObtained != null ? String(sub.mainObtained) : '';
+            // Only store non-zero values — 0 means "not entered" in this API
+            if (sub.ptObtained   > 0) m[s.id][`${sub.subjectName}|PT`]   = String(sub.ptObtained);
+            if (sub.nbObtained   > 0) m[s.id][`${sub.subjectName}|NB`]   = String(sub.nbObtained);
+            if (sub.seObtained   > 0) m[s.id][`${sub.subjectName}|SE`]   = String(sub.seObtained);
+            if (sub.mainObtained > 0) m[s.id][`${sub.subjectName}|MAIN`] = String(sub.mainObtained);
           });
         }
       });
@@ -1481,7 +1483,7 @@ function ViewUpdateMarks() {
     students.forEach((s: any) => {
       const sMarks = editMarks[s.id] || {};
       Object.entries(sMarks).forEach(([subjectName, val]) => {
-        if (val === '' || val === undefined) return;
+        if (val === '' || val === undefined || val === null || String(val).trim() === '') return;
         const sub = subjects.find((x: any) => x.subjectName === subjectName && (!filters.classId || x.classId === filters.classId));
         if (!sub) return;
         if (!bySubId[sub.id]) bySubId[sub.id] = [];
@@ -1503,9 +1505,9 @@ function ViewUpdateMarks() {
     else toast.error(`${saved} saved, ${failed} failed`);
   };
 
-  const changedCount = students.filter(s => {
+  const changedCount = students.filter((s: any) => {
     const m = editMarks[s.id] || {};
-    return Object.values(m).some(v => v !== '' && v !== undefined);
+    return Object.values(m).some((v: any) => v !== '' && v !== undefined && v !== null && String(v).trim() !== '');
   }).length;
 
   return (

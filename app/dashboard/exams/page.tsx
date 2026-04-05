@@ -22,15 +22,17 @@ export default function ExamsPage() {
         <div><h1 className="page-title">Exams & Marks</h1><p className="page-sub">PT · Notebook · Subject Enrichment · Mid Term / Annual</p></div>
       </div>
       <Tabs tabs={[
-        { key:'terms',   label:'Exam Terms'   },
-        { key:'marks',   label:'Enter Marks'  },
-        { key:'view',    label:'View / Update' },
-        { key:'results', label:'Results'      },
+        { key:'terms',    label:'Exam Terms'    },
+        { key:'marks',    label:'Enter Marks'   },
+        { key:'view',     label:'View / Update' },
+        { key:'results',  label:'Results'       },
+        { key:'analysis', label:'📊 Analysis'   },
       ]} active={tab} onChange={setTab}/>
-      {tab === 'terms'   && <ExamTerms/>}
-      {tab === 'marks'   && <MarksEntry/>}
-      {tab === 'view'    && <ViewUpdateMarks/>}
-      {tab === 'results' && <ExamResults/>}
+      {tab === 'terms'    && <ExamTerms/>}
+      {tab === 'marks'    && <MarksEntry/>}
+      {tab === 'view'     && <ViewUpdateMarks/>}
+      {tab === 'results'  && <ExamResults/>}
+      {tab === 'analysis' && <ResultAnalysis/>}
     </div>
   );
 }
@@ -1668,6 +1670,918 @@ function ViewUpdateMarks() {
               </button>
             )}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// buildReportCardHTML — generates printable HTML matching Sacred Heart PDF format
+// Called outside React so it can be used by both preview and print-all
+// ─────────────────────────────────────────────────────────────────────────────
+function buildReportCardHTML(
+  student: any,
+  result1: any | null,
+  result2: any | null,
+  term1: any,
+  term2: any,
+  cls: any
+): string {
+  const className = student.classSection?.class?.name || cls?.name || '—';
+  const section   = student.classSection?.section || '—';
+  const dob = student.dateOfBirth
+    ? new Date(student.dateOfBirth).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })
+    : '—';
+
+  // Merge subject names from both terms
+  const subjectNames: string[] = Array.from(new Set([
+    ...(result1?.subjects || []).map((s: any) => s.subjectName),
+    ...(result2?.subjects || []).map((s: any) => s.subjectName),
+  ])).sort();
+
+  const getSub = (res: any, name: string) =>
+    (res?.subjects || []).find((s: any) => s.subjectName === name);
+
+  const cellStyle = 'border:1px solid #555;padding:2px 3px;text-align:center;';
+  const tdL       = 'border:1px solid #555;padding:2px 4px;text-align:left;';
+
+  const subjectRows = subjectNames.map((name, ri) => {
+    const s1 = getSub(result1, name);
+    const s2 = getSub(result2, name);
+    const bg = ri % 2 === 0 ? '' : 'background:#fafafa;';
+
+    const f = (v: number | null | undefined) => (v != null && v > 0) ? v.toFixed(1) : '—';
+    const fa = (v: number | null | undefined, absent: boolean) => absent ? 'Ab' : f(v);
+
+    const pt1  = s1 ? fa(s1.ptWeighted,   s1.isAbsent) : '';
+    const nb1  = s1 ? f(s1.nbObtained)                 : '';
+    const se1  = s1 ? f(s1.seObtained)                 : '';
+    const mn1  = s1 ? fa(s1.mainObtained, s1.isAbsent) : '';
+    const tot1 = s1 ? f(s1.total)                       : '';
+    const gr1  = s1?.grade || '';
+
+    const pt2  = s2 ? fa(s2.ptWeighted,   s2.isAbsent) : '';
+    const nb2  = s2 ? f(s2.nbObtained)                 : '';
+    const se2  = s2 ? f(s2.seObtained)                 : '';
+    const mn2  = s2 ? fa(s2.mainObtained, s2.isAbsent) : '';
+    const tot2 = s2 ? f(s2.total)                       : '';
+    const gr2  = s2?.grade || '';
+
+    return `<tr style="${bg}">
+      <td style="${tdL}">${name}</td>
+      <td style="${cellStyle}">${pt1}</td>
+      <td style="${cellStyle}">${nb1}</td>
+      <td style="${cellStyle}">${se1}</td>
+      <td style="${cellStyle}">${mn1}</td>
+      <td style="${cellStyle}font-weight:bold;">${tot1}</td>
+      <td style="${cellStyle}">${gr1}</td>
+      <td style="${cellStyle}">${pt2}</td>
+      <td style="${cellStyle}">${nb2}</td>
+      <td style="${cellStyle}">${se2}</td>
+      <td style="${cellStyle}">${mn2}</td>
+      <td style="${cellStyle}font-weight:bold;">${tot2}</td>
+      <td style="${cellStyle}">${gr2}</td>
+    </tr>`;
+  }).join('');
+
+  const t1Tot  = result1 ? result1.grandTotal.toFixed(1) : '';
+  const t1Pct  = result1 ? parseFloat(result1.percentage).toFixed(2) + '%' : '';
+  const t1Gr   = result1?.grade || '';
+  const t1Rank = result1?.rank ?? '';
+  const t2Tot  = result2 ? result2.grandTotal.toFixed(1) : '';
+  const t2Pct  = result2 ? parseFloat(result2.percentage).toFixed(2) + '%' : '';
+  const t2Gr   = result2?.grade || '';
+  const t2Rank = result2?.rank ?? '';
+
+  const yr = new Date().getFullYear();
+  const session = `${yr}-${String(yr + 1).slice(2)}`;
+
+  const thHdr = 'border:1px solid #333;padding:2px 3px;text-align:center;font-size:7.5px;';
+  const thBlue = `background:#1a237e;color:white;${thHdr}`;
+  const thDark = `background:#283593;color:white;${thHdr}`;
+
+  const coscoActivities = [
+    'Art Education (Visual &amp; Performing Art)',
+    'Discipline',
+    'Work Education (or Pre-vocational Edu)',
+    'Health &amp; Physical Education',
+  ];
+
+  const gradeScale = [
+    ['91-100','A1'],['81-90','A2'],['71-80','B1'],['61-70','B2'],
+    ['51-60','C1'],['41-50','C2'],['33-40','D'],['32 &amp; Below','E1(Failed)'],
+  ];
+
+  return `
+<div style="width:195mm;min-height:277mm;padding:5mm 6mm;font-family:Arial,sans-serif;font-size:9px;color:#000;margin:0 auto;box-sizing:border-box;">
+
+  <!-- ── Header ─────────────────────────────── -->
+  <div style="text-align:center;border-bottom:2px solid #000;padding-bottom:5px;margin-bottom:5px;">
+    <div style="font-size:17px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;">SACRED HEART SCHOOL</div>
+    <div style="font-size:8.5px;color:#333;margin-top:1px;">Jhumri Telaiya, Koderma : 825409, Phone : 06534-224394</div>
+    <div style="font-size:8.5px;color:#333;">Affiliated to CBSE, Delhi upto +2 Level</div>
+    <div style="font-size:8.5px;color:#333;">CBSE Aff. No. : 3430224, School No. : 66417.</div>
+    <div style="font-size:8px;color:#555;">website : www.sacredheartkoderma.org, E-mail Id : shstelaiya@gmail.com</div>
+    <div style="font-size:15px;font-weight:bold;margin-top:4px;">ACHIEVEMENT REPORT</div>
+    <div style="font-size:10px;font-weight:bold;">SESSION ${session}</div>
+  </div>
+
+  <!-- ── Student Info ────────────────────────── -->
+  <table style="width:100%;border-collapse:collapse;font-size:8.5px;margin-bottom:4px;">
+    <tr>
+      <td style="${tdL}width:48%"><b>STUDENT'S NAME :</b> ${student.name}</td>
+      <td style="${tdL}width:37%"><b>DATE OF BIRTH :</b> ${dob}</td>
+      <td rowspan="5" style="border:1px solid #666;padding:2px;width:15%;text-align:center;vertical-align:middle;">
+        ${student.photo
+          ? `<img src="${student.photo}" style="width:72px;height:92px;object-fit:cover;display:block;margin:auto;"/>`
+          : `<div style="width:72px;height:92px;background:#eee;display:flex;align-items:center;justify-content:center;font-size:7px;color:#999;margin:auto;border:1px solid #ccc;">Photo</div>`
+        }
+      </td>
+    </tr>
+    <tr>
+      <td style="${tdL}"><b>FATHER'S NAME :</b> ${student.fatherName || '—'}</td>
+      <td style="${tdL}"><b>MOTHER'S NAME :</b> ${student.motherName || '—'}</td>
+    </tr>
+    <tr>
+      <td style="${tdL}"><b>CLASS/SEC. :</b> ${className} / ${section}</td>
+      <td style="${tdL}"><b>HOUSE :</b> ${student.house || '—'}</td>
+    </tr>
+    <tr>
+      <td style="${tdL}"><b>ADM. NO. :</b> ${student.admissionNumber}</td>
+      <td style="${tdL}"><b>ROLL NO. :</b> ${student.rollNumber || '—'}</td>
+    </tr>
+    <tr>
+      <td colspan="2" style="${tdL}"><b>RESIDENTIAL ADDRESS :</b> ${student.address || '—'}</td>
+    </tr>
+    <tr>
+      <td colspan="3" style="${tdL}"><b>CONTACT NO. :</b> ${student.parentPhone || student.phone || '—'}</td>
+    </tr>
+    <tr>
+      <td style="${tdL}"><b>TOTAL NO OF WORKING DAYS. :</b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+      <td colspan="2" style="${tdL}"><b>NO OF DAYS PRESENT :</b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+    </tr>
+    <tr>
+      <td style="${tdL}"><b>HEIGHT :</b> ${student.height || '____'} Cms&nbsp;&nbsp;&nbsp;<b>WEIGHT :</b> ${student.weight || '____'} Kg</td>
+      <td colspan="2" style="${tdL}"><b>BLOOD GROUP :</b> ${student.bloodGroup || '____'}</td>
+    </tr>
+    <tr>
+      <td colspan="3" style="${tdL}"><b>NAME OF THE CLASS TEACHER :</b> ____________________________________________</td>
+    </tr>
+  </table>
+
+  <!-- ── Part 1A Academic ────────────────────── -->
+  <div style="font-weight:bold;font-size:8.5px;border:1px solid #000;padding:2px 4px;background:#e8eaf6;margin-bottom:2px;">
+    ACADEMIC PERFORMANCE : SCHOLASTIC AREAS.(PART 1A.)
+  </div>
+  <table style="width:100%;border-collapse:collapse;font-size:8px;margin-bottom:4px;">
+    <thead>
+      <tr>
+        <th rowspan="2" style="${thBlue}text-align:left;min-width:75px;">SUBJECT</th>
+        <th colspan="6" style="${thBlue}">Term-1 (100 Marks)</th>
+        <th colspan="6" style="${thBlue}">Term-2 (100 Marks)</th>
+      </tr>
+      <tr>
+        <th style="${thDark}">Pre-Mid<br>Term<br>(10)</th>
+        <th style="${thDark}">Note<br>Book<br>(5)</th>
+        <th style="${thDark}">Sub<br>Enrich<br>(5)</th>
+        <th style="${thDark}">Mid<br>Term<br>(80)</th>
+        <th style="${thDark}">Marks<br>Obt.<br>(100)</th>
+        <th style="${thDark}">Grade<br>T-1</th>
+        <th style="${thDark}">Post-Mid<br>Term<br>(10)</th>
+        <th style="${thDark}">Note<br>Book<br>(5)</th>
+        <th style="${thDark}">Sub<br>Enrich<br>(5)</th>
+        <th style="${thDark}">Annual<br>Exam<br>(80)</th>
+        <th style="${thDark}">Marks<br>Obt.<br>(100)</th>
+        <th style="${thDark}">Grade<br>T-2</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${subjectRows}
+      <tr style="background:#e8f5e9;font-weight:bold;">
+        <td style="${tdL}font-weight:bold;">TOTAL</td>
+        <td colspan="4" style="border:1px solid #555;"></td>
+        <td style="${cellStyle}font-size:9px;">${t1Tot}</td>
+        <td style="${cellStyle}">${t1Gr}</td>
+        <td colspan="4" style="border:1px solid #555;"></td>
+        <td style="${cellStyle}font-size:9px;">${t2Tot}</td>
+        <td style="${cellStyle}">${t2Gr}</td>
+      </tr>
+      <tr>
+        <td style="${tdL}font-weight:bold;">Percentage</td>
+        <td colspan="5" style="${cellStyle}">${t1Pct}</td>
+        <td style="${cellStyle}"></td>
+        <td colspan="5" style="${cellStyle}">${t2Pct}</td>
+        <td style="${cellStyle}"></td>
+      </tr>
+      <tr>
+        <td style="${tdL}font-weight:bold;">Rank</td>
+        <td colspan="5" style="${cellStyle}">${t1Rank}</td>
+        <td style="${cellStyle}"></td>
+        <td colspan="5" style="${cellStyle}">${t2Rank}</td>
+        <td style="${cellStyle}"></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ── Part 1B ─────────────────────────────── -->
+  <div style="font-weight:bold;font-size:8.5px;border:1px solid #000;padding:2px 4px;background:#e8eaf6;margin-bottom:2px;">
+    ACADEMIC PERFORMANCE : SCHOLASTIC AREAS.(PART 1B.)
+  </div>
+  <table style="width:100%;border-collapse:collapse;font-size:8px;margin-bottom:4px;">
+    <thead>
+      <tr>
+        <th style="${thBlue}width:30%">Activities</th>
+        <th style="${thBlue}width:20%">Grade Term-1</th>
+        <th style="${thBlue}width:30%">Activities</th>
+        <th style="${thBlue}width:20%">Grade Term-2</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td style="${tdL}">General Knowledge</td><td style="${cellStyle}">____</td><td style="${tdL}">General Knowledge</td><td style="${cellStyle}">____</td></tr>
+      <tr><td style="${tdL}">Computer</td><td style="${cellStyle}">____</td><td style="${tdL}">Computer</td><td style="${cellStyle}">____</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ── Part 2A Co-Scholastic ──────────────── -->
+  <div style="font-weight:bold;font-size:8.5px;border:1px solid #000;padding:2px 4px;background:#e8eaf6;margin-bottom:2px;">
+    CO-SCHOLASTIC AREAS PART 2 A.[On a 3-point (A-C) grading scale]
+  </div>
+  <table style="width:100%;border-collapse:collapse;font-size:8px;margin-bottom:4px;">
+    <thead>
+      <tr>
+        <th style="${thBlue}width:30%">Activities</th>
+        <th style="${thBlue}width:20%">Grade Term-1</th>
+        <th style="${thBlue}width:30%">Activities</th>
+        <th style="${thBlue}width:20%">Grade Term-2</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${coscoActivities.map(act => `
+      <tr>
+        <td style="${tdL}">${act}</td><td style="${cellStyle}">____</td>
+        <td style="${tdL}">${act}</td><td style="${cellStyle}">____</td>
+      </tr>`).join('')}
+    </tbody>
+  </table>
+
+  <!-- ── Grade Scale + Remarks ──────────────── -->
+  <table style="width:100%;border-collapse:collapse;font-size:8px;margin-bottom:4px;">
+    <tr>
+      <td style="width:36%;vertical-align:top;border:1px solid #ccc;padding:4px;">
+        <div style="font-weight:bold;margin-bottom:3px;text-align:center;font-size:8.5px;">Instructions</div>
+        <div style="font-size:7.5px;margin-bottom:3px;">Grading Scale for scholastic areas: Grades are awarded on a 8-point grading scale as follows:</div>
+        <table style="width:100%;border-collapse:collapse;font-size:7.5px;">
+          <tr style="background:#1a237e;color:white;"><th style="border:1px solid #555;padding:1px 4px;">MARKS RANGE</th><th style="border:1px solid #555;padding:1px 4px;">GRADE</th></tr>
+          ${gradeScale.map(([m,g]) => `<tr><td style="border:1px solid #aaa;padding:1px 4px;text-align:center;">${m}</td><td style="border:1px solid #aaa;padding:1px 4px;text-align:center;font-weight:bold;">${g}</td></tr>`).join('')}
+        </table>
+      </td>
+      <td style="width:64%;vertical-align:top;padding-left:8px;">
+        <div style="margin-bottom:10px;font-size:8.5px;">Class Teacher's Remarks:..................................................................................................................</div>
+        <div style="margin-bottom:10px;font-size:8.5px;">.........................................................................................................................</div>
+        <div style="margin-bottom:10px;font-size:8.5px;">.........................................................................................................................</div>
+        <div style="margin-bottom:8px;font-size:8.5px;">Result :...................................................................................................................</div>
+        <div style="border:1px solid #000;padding:3px 6px;font-weight:bold;font-size:9px;display:inline-block;">PROMOTED / NOT PROMOTED</div>
+      </td>
+    </tr>
+  </table>
+
+  <!-- ── Signatures ─────────────────────────── -->
+  <div style="display:flex;justify-content:space-between;margin-top:12px;padding-top:6px;border-top:1px solid #000;font-size:9px;">
+    <div><u><b>CLASS TEACHER</b></u></div>
+    <div><u><b>PARENT/GUARDIAN</b></u></div>
+    <div><u><b>PRINCIPAL</b></u></div>
+  </div>
+
+</div>`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ResultAnalysis — shell with 3 sub-tabs
+// ─────────────────────────────────────────────────────────────────────────────
+function ResultAnalysis() {
+  const [subTab, setSubTab] = useState<'results'|'toppers'|'reportcard'>('results');
+  const [terms,   setTerms]   = useState<any[]>([]);
+  const [classes, setClasses] = useState<any[]>([]);
+
+  useEffect(() => {
+    examsApi.getTerms().then(r => setTerms(r.data.data || [])).catch(() => {});
+    studentsApi.getClasses().then(r => setClasses(r.data.data || [])).catch(() => {});
+  }, []);
+
+  const TABS = [
+    { k: 'results' as const,    l: '📊 Results Table' },
+    { k: 'toppers' as const,    l: '🏆 Toppers'       },
+    { k: 'reportcard' as const, l: '📋 Report Cards'  },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-1 bg-slate-100 rounded-xl p-1 w-fit">
+        {TABS.map(({ k, l }) => (
+          <button key={k} onClick={() => setSubTab(k)}
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${subTab === k ? 'bg-white shadow text-primary-600' : 'text-slate-500 hover:text-slate-700'}`}>
+            {l}
+          </button>
+        ))}
+      </div>
+      {subTab === 'results'    && <RAResultsTable    terms={terms} classes={classes}/>}
+      {subTab === 'toppers'    && <RAToppers         terms={terms} classes={classes}/>}
+      {subTab === 'reportcard' && <RAReportCards     terms={terms} classes={classes}/>}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RAResultsTable
+// ─────────────────────────────────────────────────────────────────────────────
+function RAResultsTable({ terms, classes }: any) {
+  const [filters,  setFilters]  = useState({ termId: '', classId: '', sectionId: '' });
+  const [sections, setSections] = useState<any[]>([]);
+  const [results,  setResults]  = useState<any[]>([]);
+  const [students, setStudents] = useState<any[]>([]);
+  const [loading,  setLoading]  = useState(false);
+  const f = (k: string, v: string) => setFilters(p => ({ ...p, [k]: v }));
+
+  useEffect(() => {
+    setSections([]); setResults([]); setStudents([]);
+    if (filters.classId) studentsApi.getSections(filters.classId).then(r => setSections(r.data.data || [])).catch(() => {});
+  }, [filters.classId]);
+
+  const load = async () => {
+    if (!filters.termId || !filters.classId) return toast.error('Select term and class');
+    setLoading(true);
+    try {
+      const [resR, studR] = await Promise.all([
+        examsApi.getResults({ termId: filters.termId, classId: filters.classId }),
+        studentsApi.getAll({ classId: filters.classId, limit: 500 }),
+      ]);
+      const studs: any[] = Array.isArray(studR.data.data) ? studR.data.data : [];
+      const res: any[]   = resR.data.data || [];
+      setStudents(studs);
+      // Enrich with section info and recalculate rank per section
+      const enriched = res.map((r: any) => {
+        const s = studs.find((x: any) => x.id === r.studentId);
+        return { ...r, section: s?.classSection?.section || '—', sectionId: s?.classSection?.id };
+      });
+      setResults(enriched);
+    } catch (err: any) { toast.error(err.response?.data?.message || 'Failed'); }
+    finally { setLoading(false); }
+  };
+
+  const term = terms.find((t: any) => t.id === filters.termId);
+  const cls  = classes.find((c: any) => c.id === filters.classId);
+
+  const filteredResults = filters.sectionId
+    ? results.filter((r: any) => {
+        const s = students.find((x: any) => x.id === r.studentId);
+        return s?.classSection?.id === filters.sectionId;
+      })
+    : results;
+
+  const subjects = results.length > 0 ? results[0].subjects || [] : [];
+
+  const downloadExcel = async () => {
+    const XLSX = await import('xlsx');
+    const rows = filteredResults.map((r: any, i: number) => {
+      const row: any = { Rank: i + 1, Name: r.name, 'Adm No': r.admissionNumber, 'Roll': r.rollNumber || '', Sec: r.section };
+      (r.subjects || []).forEach((sub: any) => {
+        row[`${sub.subjectName} PT(10)`]   = sub.ptWeighted;
+        row[`${sub.subjectName} NB(5)`]    = sub.nbObtained;
+        row[`${sub.subjectName} SE(5)`]    = sub.seObtained;
+        row[`${sub.subjectName} Main(80)`] = sub.mainObtained;
+        row[`${sub.subjectName} Total`]    = Number(sub.total.toFixed(1));
+        row[`${sub.subjectName} Grade`]    = sub.grade;
+      });
+      row['Grand Total'] = Number(r.grandTotal.toFixed(1));
+      row['Max']         = r.maxGrandTotal;
+      row['%']           = parseFloat(r.percentage).toFixed(2);
+      row['Grade']       = r.grade;
+      return row;
+    });
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = Object.keys(rows[0] || {}).map(k => ({ wch: Math.max(k.length, 8) }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Results');
+    XLSX.writeFile(wb, `Results_${term?.name || 'Term'}_${cls?.name || 'Class'}.xlsx`);
+    toast.success('Excel downloaded!');
+  };
+
+  const downloadPDF = () => {
+    if (!filteredResults.length) return;
+    const mainLabel = (term?.termNumber ?? 1) === 2 ? 'Annual' : 'Mid Term';
+    const subHd1 = subjects.map((s: any) => `<th colspan="2" style="border:1px solid #333;padding:2px;background:#1a237e;color:white;font-size:8px;">${s.subjectName}</th>`).join('');
+    const subHd2 = subjects.map(()    => `<th style="border:1px solid #333;padding:2px;background:#283593;color:white;font-size:7px;">Total</th><th style="border:1px solid #333;padding:2px;background:#283593;color:white;font-size:7px;">Grade</th>`).join('');
+    const rows = filteredResults.map((r: any, i: number) => {
+      const cells = (r.subjects || []).map((sub: any) => `
+        <td style="border:1px solid #ccc;padding:2px;text-align:center;font-size:8px;${sub.isPassed?'':'color:#c62828'}">${sub.total.toFixed(1)}</td>
+        <td style="border:1px solid #ccc;padding:2px;text-align:center;font-size:8px;">${sub.grade}</td>`).join('');
+      return `<tr style="${i%2===0?'':'background:#f8f8f8'}">
+        <td style="border:1px solid #ccc;padding:2px;text-align:center;font-size:8px;font-weight:bold;">${i+1}</td>
+        <td style="border:1px solid #ccc;padding:2px;font-size:8px;">${r.name}<br><span style="color:#888;font-size:7px;">${r.admissionNumber}</span></td>
+        <td style="border:1px solid #ccc;padding:2px;text-align:center;font-size:8px;">${r.rollNumber||'—'}</td>
+        <td style="border:1px solid #ccc;padding:2px;text-align:center;font-size:8px;">${r.section}</td>
+        ${cells}
+        <td style="border:1px solid #ccc;padding:2px;text-align:center;font-size:8.5px;font-weight:bold;">${r.grandTotal.toFixed(1)}<span style="color:#888;font-size:7px;">/${r.maxGrandTotal}</span></td>
+        <td style="border:1px solid #ccc;padding:2px;text-align:center;font-size:8px;font-weight:bold;">${parseFloat(r.percentage).toFixed(1)}%</td>
+        <td style="border:1px solid #ccc;padding:2px;text-align:center;font-size:8px;font-weight:bold;">${r.grade}</td>
+      </tr>`;
+    }).join('');
+    const html = `<!DOCTYPE html><html><head><title>Results</title>
+    <style>body{font-family:Arial;margin:8px;}h2{text-align:center;color:#1a237e;font-size:13px;margin-bottom:2px;}p{text-align:center;font-size:9px;color:#555;margin-bottom:6px;}
+    @page{size:A4 landscape;margin:8mm;} table{width:100%;border-collapse:collapse;}</style>
+    </head><body onload="window.print();window.close();">
+    <h2>Sacred Heart School Koderma — Result Sheet</h2>
+    <p>${cls?.name || ''} &nbsp;|&nbsp; ${term?.name || ''} &nbsp;|&nbsp; ${filteredResults.length} Students</p>
+    <table>
+      <thead>
+        <tr>
+          <th rowspan="2" style="border:1px solid #333;padding:2px;background:#1a237e;color:white;font-size:8px;">Rank</th>
+          <th rowspan="2" style="border:1px solid #333;padding:2px;background:#1a237e;color:white;font-size:8px;">Student</th>
+          <th rowspan="2" style="border:1px solid #333;padding:2px;background:#1a237e;color:white;font-size:8px;">Roll</th>
+          <th rowspan="2" style="border:1px solid #333;padding:2px;background:#1a237e;color:white;font-size:8px;">Sec</th>
+          ${subHd1}
+          <th rowspan="2" style="border:1px solid #333;padding:2px;background:#1a237e;color:white;font-size:8px;">Grand Total</th>
+          <th rowspan="2" style="border:1px solid #333;padding:2px;background:#1a237e;color:white;font-size:8px;">%</th>
+          <th rowspan="2" style="border:1px solid #333;padding:2px;background:#1a237e;color:white;font-size:8px;">Grade</th>
+        </tr>
+        <tr>${subHd2}</tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table></body></html>`;
+    const w = window.open('', '_blank');
+    if (!w) { toast.error('Popup blocked — allow popups and retry'); return; }
+    w.document.write(html); w.document.close();
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="card p-4 flex flex-wrap gap-3 items-end">
+        <div><label className="form-label">Term</label>
+          <select value={filters.termId} onChange={e => f('termId', e.target.value)} className="form-select w-40">
+            <option value="">Select</option>
+            {terms.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        </div>
+        <div><label className="form-label">Class</label>
+          <select value={filters.classId} onChange={e => f('classId', e.target.value)} className="form-select w-32">
+            <option value="">Select</option>
+            {classes.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+        <div><label className="form-label">Section</label>
+          <select value={filters.sectionId} onChange={e => f('sectionId', e.target.value)} className="form-select w-28" disabled={!sections.length}>
+            <option value="">All</option>
+            {sections.map((s: any) => <option key={s.id} value={s.id}>{s.section}</option>)}
+          </select>
+        </div>
+        <button onClick={load} disabled={loading || !filters.termId || !filters.classId} className="btn-primary">
+          {loading ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>Loading…</> : 'Load Results'}
+        </button>
+        {filteredResults.length > 0 && (
+          <>
+            <button onClick={downloadExcel} className="btn-secondary text-sm text-emerald-700 border-emerald-200 hover:bg-emerald-50">⬇ Excel</button>
+            <button onClick={downloadPDF}   className="btn-secondary text-sm text-rose-700 border-rose-200 hover:bg-rose-50">⬇ PDF</button>
+            <span className="text-xs text-slate-500 ml-auto">{filteredResults.length} students</span>
+          </>
+        )}
+      </div>
+
+      {!loading && filteredResults.length > 0 && (
+        <div className="card overflow-auto">
+          <table className="tbl" style={{ minWidth: '900px' }}>
+            <thead>
+              <tr>
+                <th rowSpan={2}>Rank</th>
+                <th rowSpan={2}>Student</th>
+                <th rowSpan={2} className="w-14">Roll</th>
+                <th rowSpan={2} className="w-10">Sec</th>
+                {subjects.map((sub: any) => (
+                  <th key={sub.subjectName} colSpan={2} className="text-center border-l border-slate-200 bg-primary-50 text-primary-700 text-xs whitespace-nowrap">
+                    {sub.subjectName}
+                  </th>
+                ))}
+                <th rowSpan={2} className="text-center whitespace-nowrap">Grand Total</th>
+                <th rowSpan={2} className="text-center">%</th>
+                <th rowSpan={2} className="text-center">Grade</th>
+              </tr>
+              <tr>
+                {subjects.map((sub: any) => (
+                  ['/100','Grd'].map(h => (
+                    <th key={`${sub.subjectName}|${h}`} className="text-center border-l border-slate-100 text-[10px] font-medium whitespace-nowrap">{h}</th>
+                  ))
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filteredResults.map((r: any, i: number) => (
+                <tr key={r.studentId}>
+                  <td className="text-center">
+                    <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold mx-auto ${i===0?'bg-yellow-100 text-yellow-700':i===1?'bg-slate-200 text-slate-600':i===2?'bg-orange-100 text-orange-700':'text-slate-500'}`}>
+                      {i + 1}
+                    </span>
+                  </td>
+                  <td><p className="font-medium text-sm leading-tight">{r.name}</p><p className="text-xs text-slate-400 font-mono">{r.admissionNumber}</p></td>
+                  <td className="text-center text-sm">{r.rollNumber || '—'}</td>
+                  <td className="text-center"><span className="badge badge-gray text-xs">{r.section}</span></td>
+                  {(r.subjects || []).map((sub: any) => (
+                    [
+                      <td key={`${sub.subjectName}|tot`} className="text-center text-sm font-semibold border-l border-slate-100">
+                        <span className={sub.isPassed ? 'text-green-700' : 'text-red-600'}>{sub.total.toFixed(1)}</span>
+                      </td>,
+                      <td key={`${sub.subjectName}|gr`} className="text-center">
+                        <span className="badge badge-blue text-[10px]">{sub.grade}</span>
+                      </td>,
+                    ]
+                  ))}
+                  <td className="text-center font-bold">{r.grandTotal.toFixed(1)}<span className="text-xs text-slate-400">/{r.maxGrandTotal}</span></td>
+                  <td className="text-center font-semibold">
+                    <span className={parseFloat(r.percentage) >= 60 ? 'text-green-600' : parseFloat(r.percentage) >= 33 ? 'text-amber-600' : 'text-red-500'}>
+                      {parseFloat(r.percentage).toFixed(1)}%
+                    </span>
+                  </td>
+                  <td className="text-center"><span className="badge badge-blue">{r.grade}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {!loading && filteredResults.length === 0 && (
+        <div className="card p-12 text-center text-slate-400 text-sm">Select term and class, then click Load Results</div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RAToppers
+// ─────────────────────────────────────────────────────────────────────────────
+function RAToppers({ terms, classes }: any) {
+  const [view,     setView]     = useState<'section'|'class'|'subject'|'school'>('section');
+  const [filters,  setFilters]  = useState({ termId: '', classId: '' });
+  const [loading,  setLoading]  = useState(false);
+  const [results,  setResults]  = useState<any[]>([]);   // for section/class/subject
+  const [students, setStudents] = useState<any[]>([]);
+  const [allRes,   setAllRes]   = useState<any[]>([]);   // for school toppers
+  const f = (k: string, v: string) => setFilters(p => ({ ...p, [k]: v }));
+
+  const load = async () => {
+    if (!filters.termId) return toast.error('Select term');
+    setLoading(true);
+    setResults([]); setAllRes([]);
+    try {
+      if (view === 'school') {
+        const all: any[] = [];
+        for (const cls of classes) {
+          try {
+            const r = await examsApi.getResults({ termId: filters.termId, classId: cls.id });
+            (r.data.data || []).forEach((d: any) => all.push({ ...d, className: cls.name }));
+          } catch {}
+        }
+        all.sort((a, b) => parseFloat(b.percentage) - parseFloat(a.percentage));
+        setAllRes(all);
+      } else {
+        if (!filters.classId) return toast.error('Select class');
+        const [resR, studR] = await Promise.all([
+          examsApi.getResults({ termId: filters.termId, classId: filters.classId }),
+          studentsApi.getAll({ classId: filters.classId, limit: 500 }),
+        ]);
+        const studs: any[] = Array.isArray(studR.data.data) ? studR.data.data : [];
+        const res: any[]   = resR.data.data || [];
+        setStudents(studs);
+        setResults(res.map((r: any) => {
+          const s = studs.find((x: any) => x.id === r.studentId);
+          return { ...r, section: s?.classSection?.section || '—', sectionId: s?.classSection?.id };
+        }));
+      }
+    } catch { toast.error('Failed to load'); }
+    finally { setLoading(false); }
+  };
+
+  const subjects = results.length > 0 ? results[0].subjects || [] : [];
+
+  // Section groups sorted by grandTotal desc
+  const sectionGroups: Record<string, any[]> = {};
+  results.forEach(r => {
+    const sec = r.section || '—';
+    if (!sectionGroups[sec]) sectionGroups[sec] = [];
+    sectionGroups[sec].push(r);
+  });
+  Object.keys(sectionGroups).forEach(sec => {
+    sectionGroups[sec].sort((a, b) => b.grandTotal - a.grandTotal);
+  });
+
+  // Class toppers: sorted by grandTotal
+  const classToppers = [...results].sort((a, b) => b.grandTotal - a.grandTotal).slice(0, 10);
+
+  // Subject toppers
+  const subjectToppers = subjects.map((sub: any) => {
+    const best = [...results].sort((a, b) => {
+      const aS = (a.subjects || []).find((s: any) => s.subjectName === sub.subjectName);
+      const bS = (b.subjects || []).find((s: any) => s.subjectName === sub.subjectName);
+      return (bS?.total || 0) - (aS?.total || 0);
+    })[0];
+    const bestSub = (best?.subjects || []).find((s: any) => s.subjectName === sub.subjectName);
+    return { subject: sub.subjectName, student: best?.name, admNo: best?.admissionNumber, rollNo: best?.rollNumber, section: best?.section, marks: bestSub?.total, grade: bestSub?.grade };
+  });
+
+  const Rb = ({ i }: { i: number }) => (
+    <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold mx-auto ${i===0?'bg-yellow-400 text-yellow-900':i===1?'bg-slate-300 text-slate-700':i===2?'bg-orange-300 text-orange-900':'bg-slate-100 text-slate-600'}`}>
+      {i + 1}
+    </span>
+  );
+
+  const TopTable = ({ title, color, rows }: { title: string; color: string; rows: React.ReactNode }) => (
+    <div className="card overflow-hidden">
+      <div className={`px-4 py-2.5 ${color}`}><p className="font-bold text-white text-sm">{title}</p></div>
+      <table className="tbl">{rows}</table>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="card p-4 space-y-4">
+        <div className="flex gap-2 flex-wrap">
+          {([['section','Section Wise'],['class','Class Wise'],['subject','Subject Wise'],['school','School Toppers']] as const).map(([k,l]) => (
+            <button key={k} onClick={() => { setView(k); setResults([]); setAllRes([]); }}
+              className={`px-4 py-2 rounded-xl text-sm font-semibold border-2 transition-all ${view===k?'border-primary-500 bg-primary-50 text-primary-700':'border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50'}`}>
+              {l}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-3 items-end flex-wrap">
+          <div><label className="form-label">Term</label>
+            <select value={filters.termId} onChange={e => f('termId', e.target.value)} className="form-select w-40">
+              <option value="">Select</option>
+              {terms.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </div>
+          {view !== 'school' && (
+            <div><label className="form-label">Class</label>
+              <select value={filters.classId} onChange={e => f('classId', e.target.value)} className="form-select w-36">
+                <option value="">Select</option>
+                {classes.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+          )}
+          <button onClick={load} disabled={loading} className="btn-primary">
+            {loading ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>Loading…</> : 'Load Toppers'}
+          </button>
+        </div>
+      </div>
+
+      {loading && <div className="card p-10 text-center"><div className="w-7 h-7 border-2 border-primary-600 border-t-transparent rounded-full animate-spin mx-auto"/></div>}
+
+      {/* Section Wise */}
+      {!loading && view === 'section' && Object.keys(sectionGroups).length > 0 && (
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          {Object.entries(sectionGroups).map(([sec, studs]) => (
+            <TopTable key={sec} title={`Section ${sec} — Top ${Math.min(10, studs.length)}`} color="bg-primary-600"
+              rows={<>
+                <thead><tr><th>Rank</th><th>Student</th><th>Roll</th><th>Total</th><th>%</th><th>Grade</th></tr></thead>
+                <tbody>
+                  {studs.slice(0, 10).map((r: any, i: number) => (
+                    <tr key={r.studentId}>
+                      <td className="text-center"><Rb i={i}/></td>
+                      <td><p className="font-medium text-sm leading-tight">{r.name}</p><p className="text-xs text-slate-400">{r.admissionNumber}</p></td>
+                      <td className="text-center text-sm">{r.rollNumber || '—'}</td>
+                      <td className="text-center font-bold text-primary-700">{r.grandTotal.toFixed(1)}<span className="text-xs text-slate-400">/{r.maxGrandTotal}</span></td>
+                      <td className="text-center font-semibold">{parseFloat(r.percentage).toFixed(1)}%</td>
+                      <td className="text-center"><span className="badge badge-blue">{r.grade}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </>}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Class Wise */}
+      {!loading && view === 'class' && classToppers.length > 0 && (
+        <TopTable title={`Class Wise Top ${classToppers.length}`} color="bg-violet-600"
+          rows={<>
+            <thead><tr><th>Rank</th><th>Student</th><th>Roll</th><th>Section</th><th>Total</th><th>%</th><th>Grade</th></tr></thead>
+            <tbody>
+              {classToppers.map((r: any, i: number) => (
+                <tr key={r.studentId}>
+                  <td className="text-center"><Rb i={i}/></td>
+                  <td><p className="font-medium text-sm leading-tight">{r.name}</p><p className="text-xs text-slate-400">{r.admissionNumber}</p></td>
+                  <td className="text-center text-sm">{r.rollNumber || '—'}</td>
+                  <td className="text-center"><span className="badge badge-blue">{r.section}</span></td>
+                  <td className="text-center font-bold text-violet-700">{r.grandTotal.toFixed(1)}</td>
+                  <td className="text-center font-semibold">{parseFloat(r.percentage).toFixed(1)}%</td>
+                  <td className="text-center"><span className="badge badge-blue">{r.grade}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </>}
+        />
+      )}
+
+      {/* Subject Wise */}
+      {!loading && view === 'subject' && subjectToppers.length > 0 && (
+        <TopTable title="Subject Toppers" color="bg-teal-600"
+          rows={<>
+            <thead><tr><th>Subject</th><th>Student</th><th>Roll</th><th>Sec</th><th>Marks /100</th><th>Grade</th></tr></thead>
+            <tbody>
+              {subjectToppers.map((st: any) => (
+                <tr key={st.subject}>
+                  <td className="font-semibold text-teal-700">{st.subject}</td>
+                  <td><p className="font-medium text-sm leading-tight">{st.student || '—'}</p><p className="text-xs text-slate-400">{st.admNo}</p></td>
+                  <td className="text-center text-sm">{st.rollNo || '—'}</td>
+                  <td className="text-center"><span className="badge badge-gray">{st.section}</span></td>
+                  <td className="text-center font-bold text-teal-700">{st.marks != null ? st.marks.toFixed(1) : '—'}</td>
+                  <td className="text-center"><span className="badge badge-blue">{st.grade || '—'}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </>}
+        />
+      )}
+
+      {/* School Toppers */}
+      {!loading && view === 'school' && allRes.length > 0 && (
+        <TopTable title={`🏆 School Toppers — Top ${Math.min(10, allRes.length)} Overall`} color="bg-yellow-500"
+          rows={<>
+            <thead><tr><th>Rank</th><th>Student</th><th>Class</th><th>Roll</th><th>Total</th><th>%</th><th>Grade</th></tr></thead>
+            <tbody>
+              {allRes.slice(0, 10).map((r: any, i: number) => (
+                <tr key={`${r.studentId}${i}`}>
+                  <td className="text-center"><Rb i={i}/></td>
+                  <td><p className="font-medium text-sm leading-tight">{r.name}</p><p className="text-xs text-slate-400">{r.admissionNumber}</p></td>
+                  <td className="text-center text-sm font-medium">{r.className}</td>
+                  <td className="text-center text-sm">{r.rollNumber || '—'}</td>
+                  <td className="text-center font-bold text-yellow-700">{r.grandTotal.toFixed(1)}</td>
+                  <td className="text-center font-semibold">{parseFloat(r.percentage).toFixed(1)}%</td>
+                  <td className="text-center"><span className="badge badge-blue">{r.grade}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </>}
+        />
+      )}
+
+      {!loading && results.length === 0 && allRes.length === 0 && (
+        <div className="card p-12 text-center text-slate-400 text-sm">Select filters and click Load Toppers</div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RAReportCards
+// ─────────────────────────────────────────────────────────────────────────────
+function RAReportCards({ terms, classes }: any) {
+  const [filters,    setFilters]    = useState({ term1Id: '', term2Id: '', classId: '', sectionId: '' });
+  const [sections,   setSections]   = useState<any[]>([]);
+  const [students,   setStudents]   = useState<any[]>([]);
+  const [results1,   setResults1]   = useState<any[]>([]);
+  const [results2,   setResults2]   = useState<any[]>([]);
+  const [loading,    setLoading]    = useState(false);
+  const [currentIdx, setCurrentIdx] = useState(0);
+  const f = (k: string, v: string) => setFilters(p => ({ ...p, [k]: v }));
+
+  useEffect(() => {
+    setSections([]); setStudents([]); setResults1([]); setResults2([]);
+    if (filters.classId) studentsApi.getSections(filters.classId).then(r => setSections(r.data.data || [])).catch(() => {});
+  }, [filters.classId]);
+
+  const term1 = terms.find((t: any) => t.id === filters.term1Id);
+  const term2 = terms.find((t: any) => t.id === filters.term2Id);
+  const cls   = classes.find((c: any) => c.id === filters.classId);
+
+  const load = async () => {
+    if (!filters.classId)                    return toast.error('Select class');
+    if (!filters.term1Id && !filters.term2Id) return toast.error('Select at least one term');
+    setLoading(true);
+    try {
+      const toFetch: Promise<any>[] = [
+        studentsApi.getAll({ classId: filters.classId, classSectionId: filters.sectionId || undefined, limit: 500 }),
+      ];
+      if (filters.term1Id) toFetch.push(examsApi.getResults({ termId: filters.term1Id, classId: filters.classId }));
+      if (filters.term2Id) toFetch.push(examsApi.getResults({ termId: filters.term2Id, classId: filters.classId }));
+      const [studR, ...resRs] = await Promise.all(toFetch);
+      const studs: any[] = (Array.isArray(studR.data.data) ? studR.data.data : [])
+        .sort((a: any, b: any) => parseInt(a.rollNumber || '9999') - parseInt(b.rollNumber || '9999'));
+      setStudents(studs);
+      let ri = 0;
+      if (filters.term1Id) { setResults1(resRs[ri]?.data?.data || []); ri++; }
+      else                 { setResults1([]); }
+      if (filters.term2Id) { setResults2(resRs[ri]?.data?.data || []); }
+      else                 { setResults2([]); }
+      setCurrentIdx(0);
+      toast.success(`${studs.length} students loaded`);
+    } catch (err: any) { toast.error(err.response?.data?.message || 'Failed'); }
+    finally { setLoading(false); }
+  };
+
+  const getR1 = (id: string) => results1.find((r: any) => r.studentId === id) || null;
+  const getR2 = (id: string) => results2.find((r: any) => r.studentId === id) || null;
+
+  const printCards = (studsToprint: any[]) => {
+    const cards = studsToprint
+      .map(s => buildReportCardHTML(s, getR1(s.id), getR2(s.id), term1, term2, cls))
+      .join('<div style="page-break-after:always;height:0;margin:0;padding:0;"></div>');
+    const w = window.open('', '_blank');
+    if (!w) { toast.error('Popup blocked — please allow popups'); return; }
+    w.document.write(`<!DOCTYPE html><html><head><title>Report Cards — ${cls?.name || ''}</title>
+      <style>
+        *{margin:0;padding:0;box-sizing:border-box;}
+        body{font-family:Arial,sans-serif;font-size:9px;background:white;}
+        @page{size:A4 portrait;margin:6mm;}
+        @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
+      </style>
+    </head><body onload="setTimeout(()=>{window.print();window.close();},400);">
+      ${cards}
+    </body></html>`);
+    w.document.close();
+  };
+
+  const currentStudent = students[currentIdx];
+
+  return (
+    <div className="space-y-4">
+      {/* Filters */}
+      <div className="card p-5 space-y-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div><label className="form-label">Term 1</label>
+            <select value={filters.term1Id} onChange={e => f('term1Id', e.target.value)} className="form-select">
+              <option value="">(none / skip)</option>
+              {terms.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </div>
+          <div><label className="form-label">Term 2</label>
+            <select value={filters.term2Id} onChange={e => f('term2Id', e.target.value)} className="form-select">
+              <option value="">(none / skip)</option>
+              {terms.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </div>
+          <div><label className="form-label">Class *</label>
+            <select value={filters.classId} onChange={e => f('classId', e.target.value)} className="form-select">
+              <option value="">Select</option>
+              {classes.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+          <div><label className="form-label">Section</label>
+            <select value={filters.sectionId} onChange={e => f('sectionId', e.target.value)} className="form-select" disabled={!sections.length}>
+              <option value="">All</option>
+              {sections.map((s: any) => <option key={s.id} value={s.id}>{s.section}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="flex gap-3 items-center flex-wrap">
+          <button onClick={load} disabled={loading || !filters.classId} className="btn-primary">
+            {loading ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>Loading…</> : 'Load Report Cards'}
+          </button>
+          {students.length > 0 && (<>
+            <button onClick={() => currentStudent && printCards([currentStudent])} className="btn-secondary text-sm">🖨 Print This Card</button>
+            <button onClick={() => printCards(students)} className="btn-secondary text-sm">🖨 Print All ({students.length})</button>
+            <span className="text-xs text-slate-500 ml-auto">{students.length} students</span>
+          </>)}
+        </div>
+      </div>
+
+      {/* Navigation */}
+      {!loading && students.length > 0 && (
+        <div className="card p-3 flex items-center gap-3">
+          <button onClick={() => setCurrentIdx(p => Math.max(0, p - 1))} disabled={currentIdx === 0} className="btn-icon disabled:opacity-30 text-lg">◀</button>
+          <span className="flex-1 text-center text-sm font-medium text-slate-700">
+            {currentIdx + 1} of {students.length} — <span className="font-bold">{currentStudent?.name}</span>
+            <span className="text-slate-400 ml-2 font-mono text-xs">{currentStudent?.admissionNumber}</span>
+          </span>
+          <button onClick={() => setCurrentIdx(p => Math.min(students.length - 1, p + 1))} disabled={currentIdx === students.length - 1} className="btn-icon disabled:opacity-30 text-lg">▶</button>
+        </div>
+      )}
+
+      {/* Preview */}
+      {!loading && currentStudent && (
+        <div className="card overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-2 bg-slate-50 border-b border-slate-200">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Preview</p>
+            <button onClick={() => printCards([currentStudent])} className="btn-primary text-xs py-1 px-3">🖨 Print / Save PDF</button>
+          </div>
+          <div className="bg-white p-4 overflow-auto">
+            <div
+              style={{ transform: 'scale(0.92)', transformOrigin: 'top left', width: '109%' }}
+              dangerouslySetInnerHTML={{
+                __html: buildReportCardHTML(
+                  currentStudent,
+                  getR1(currentStudent.id),
+                  getR2(currentStudent.id),
+                  term1, term2, cls
+                )
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {!loading && students.length === 0 && (
+        <div className="card p-12 text-center text-slate-400 text-sm">
+          Select class + term(s) and click Load Report Cards
         </div>
       )}
     </div>
